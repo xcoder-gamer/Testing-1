@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "student": {
+      "title": "Student Scholarship Profile",
+      "description": "Represents a student's retention, scholarship, and tracking information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "region": { "type": "string" },
+        "center": { "type": "string" },
+        "building": { "type": "string" },
+        "studentName": { "type": "string" },
+        "regNo": { "type": "string" },
+        "batchName": { "type": "string" },
+        "class": { "type": "string" },
+        "scholarship": { "type": "string" },
+        "mentor": { "type": "string" },
+        "mentorMailid": { "type": "string" },
+        "pwid": { "type": "string" },
+        "whatsappIntimation": { "type": "boolean" },
+        "ptmStatus": { "type": "string" },
+        "parentRemarks": { "type": "string" },
+        "paymentDate": { "type": "string" },
+        "discontinueReason": { "type": "string" },
+        "retentionProbability": { "type": "string", "enum": ["Low", "Medium", "High", ""] },
+        "proposedScholarship": { "type": "string" },
+        "extraScholarshipDemand": { "type": "boolean" },
+        "extraScholarshipStatus": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "InProgress", ""] },
+        "finalRetentionStatus": { "type": "string" },
+        "finalScholarship": { "type": "string" },
+        "counselorName": { "type": "string" },
+        "counselorPwid": { "type": "string" },
+        "newRegno": { "type": "string" }
+      },
+      "required": ["id", "studentName", "regNo"]
+    },
+    "activity_log": {
+      "title": "Activity Log",
+      "description": "Tracks audits and history records of creations, edits, and deletions in the scholarship tool.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "userRole": { "type": "string" },
+        "action": { "type": "string", "enum": ["CREATE", "UPDATE", "DELETE", "IMPORT", "RESET"] },
+        "details": { "type": "string" },
+        "target": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "userRole", "action", "details"]
+    }
+  },
+  "firestore": {
+    "students/{studentId}": {
+      "schema": "student",
+      "description": "Scholarship and tracking database"
+    },
+    "logs/{logId}": {
+      "schema": "activity_log",
+      "description": "Audit trails for actions"
+    }
+  }
+}

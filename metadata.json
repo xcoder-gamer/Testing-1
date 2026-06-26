@@ -1,0 +1,6 @@
+{
+  "name": "PW Foundation Scholarship Tracker",
+  "description": "An interactive table and tracking dashboard for the PW Foundation Scholarship 2026 dataset.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
