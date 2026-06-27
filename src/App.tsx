@@ -78,6 +78,13 @@ const safeLocalStorage = {
     } catch (e) {
       console.warn('localStorage is blocked or unavailable:', e);
     }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn('localStorage is blocked or unavailable:', e);
+    }
   }
 };
 
@@ -150,9 +157,8 @@ export default function App() {
   // Role & Permissions Configuration States
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [userRolesList, setUserRolesList] = useState<UserRoleMapping[]>([]);
-  const [activeEmail, setActiveEmail] = useState<string>(() => {
-    return safeLocalStorage.getItem('pw_scholarship_active_email') || '';
-  });
+  const [activeEmail, setActiveEmail] = useState<string>('');
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   // Check authorization status
   const isAuthorized = useMemo(() => {
@@ -267,6 +273,7 @@ export default function App() {
           // Wait until roles are loaded before evaluating mapping
           if (userRolesList.length === 0) {
             setActiveEmail(emailLower);
+            setIsAuthLoading(false);
             return;
           }
 
@@ -288,7 +295,15 @@ export default function App() {
             setActiveEmail('');
           }
         }
+      } else {
+        // If no active Firebase user, check if we have a valid offline admin bypass session
+        if (safeLocalStorage.getItem('pw_scholarship_bypass_admin') === 'true') {
+          setActiveEmail('devansh.sharma@pw.live');
+        } else {
+          setActiveEmail('');
+        }
       }
+      setIsAuthLoading(false);
     });
     return () => unsubscribe();
   }, [userRolesList]);
@@ -1525,7 +1540,7 @@ export default function App() {
     }
   };
 
-  if (isLoadingCloud) {
+  if (isLoadingCloud || isAuthLoading) {
     return (
       <div className="min-h-screen bg-[#F4F1EA] text-stone-800 flex flex-col items-center justify-center font-sans antialiased">
         <div className="flex flex-col items-center p-8 bg-white border border-[#DDD5C5] rounded-3xl shadow-xl max-w-sm text-center relative overflow-hidden">
@@ -1606,6 +1621,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
+                    safeLocalStorage.setItem('pw_scholarship_bypass_admin', 'true');
                     setActiveEmail('devansh.sharma@pw.live');
                     triggerBanner('Access Granted: Connected as Admin (devansh.sharma@pw.live)!', 'success');
                   }}
@@ -1614,145 +1630,6 @@ export default function App() {
                   <Sparkles className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
                   <span>Connect with Admin (devansh.sharma@pw.live)</span>
                 </button>
-              </div>
-
-              {/* Divider */}
-              <div className="flex items-center gap-3">
-                <div className="h-[1px] bg-[#DDD5C5]/60 flex-1"></div>
-                <span className="text-[9px] font-mono font-extrabold text-stone-400 tracking-wider">DEVELOPER / REVIEWER BYPASS</span>
-                <div className="h-[1px] bg-[#DDD5C5]/60 flex-1"></div>
-              </div>
-
-              {/* Login Form (Bypass) */}
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-stone-600">Enter Registered Email:</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 w-4 h-4 text-stone-400" />
-                    <input
-                      type="email"
-                      required
-                      value={loginEmailInput}
-                      onChange={(e) => {
-                        setLoginEmailInput(e.target.value);
-                        if (loginError) setLoginError(null);
-                      }}
-                      placeholder="e.g. user@pw.live"
-                      className="pl-9.5 pr-4 py-2.5 w-full text-xs font-bold bg-[#FAF8F5] border border-[#DDD5C5] rounded-xl focus:ring-2 focus:ring-[#5A7060]/20 focus:border-[#5A7060] outline-hidden text-stone-800 transition"
-                      disabled={isVerifyingLogin}
-                    />
-                  </div>
-                </div>
-
-                {loginError && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] font-semibold text-red-700 flex gap-2"
-                  >
-                    <Info className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
-                    <span>{loginError}</span>
-                  </motion.div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isVerifyingLogin}
-                  className="w-full bg-white hover:bg-stone-50 border border-[#DDD5C5] hover:border-stone-400 text-stone-700 py-2.5 rounded-xl text-xs font-bold transition duration-150 flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <span>Verify Email & Connect (Offline Mode)</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-stone-500" />
-                </button>
-              </form>
-
-              {/* Evaluator & Administrator Accordion helper */}
-              <div className="border border-[#DDD5C5]/60 rounded-2xl overflow-hidden bg-[#FFFDFB]">
-                <button
-                  type="button"
-                  onClick={() => setShowAuthorizedList(!showAuthorizedList)}
-                  className="w-full px-4 py-3 flex items-center justify-between text-[11px] font-bold text-stone-600 bg-[#FAF8F5] hover:bg-[#F2EDDF] transition text-left cursor-pointer border-b border-[#DDD5C5]/40"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-[#5A7060]" />
-                    <span>Show Mapped Registered Emails</span>
-                  </span>
-                  <span className="text-[10px] font-extrabold text-[#5A7060] bg-[#5A7060]/10 px-2 py-0.5 rounded-full">
-                    {userRolesList.length + 1}
-                  </span>
-                </button>
-
-                <AnimatePresence>
-                  {showAuthorizedList && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="p-4 space-y-3 max-h-[220px] overflow-y-auto text-[11px] leading-relaxed border-t border-[#DDD5C5]/20 divide-y divide-[#DDD5C5]/20">
-                        <div className="pb-2 flex items-center justify-between gap-1.5">
-                          <div>
-                            <p className="font-bold text-stone-800">devansh.sharma@pw.live</p>
-                            <p className="text-[9px] text-stone-500 font-mono">Master Administrator</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLoginEmailInput('devansh.sharma@pw.live');
-                              setLoginError(null);
-                            }}
-                            className="text-[10px] font-bold text-[#5A7060] bg-[#5A7060]/10 hover:bg-[#5A7060]/20 px-2 py-1 rounded-lg transition"
-                          >
-                            Use
-                          </button>
-                        </div>
-                        {userRolesList.length === 0 ? (
-                          <p className="pt-2 text-[10px] text-stone-400 font-medium italic">
-                            No row permission mappings loaded yet. Log in as master admin to configure mappings first.
-                          </p>
-                        ) : (
-                          userRolesList.map((mapping, idx) => {
-                            const emails = [
-                              { email: mapping.rahMailid, role: 'RAH' },
-                              { email: mapping.rfhMailid, role: 'RFH' },
-                              { email: mapping.chMailid, role: 'CH' },
-                              { email: mapping.fhMailid, role: 'FH' },
-                              { email: mapping.mentorId, role: 'Mentor' },
-                              { email: mapping.counselorId, role: 'Counselor' },
-                            ].filter(item => item.email && item.email.trim() !== '');
-
-                            if (emails.length === 0) return null;
-
-                            return (
-                              <div key={idx} className="py-2 space-y-1.5">
-                                <p className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">
-                                  {mapping.region} • {mapping.center}
-                                </p>
-                                <div className="space-y-1">
-                                  {emails.map((e, eIdx) => (
-                                    <div key={eIdx} className="flex items-center justify-between gap-2 pl-2">
-                                      <span className="text-stone-700 truncate font-medium text-[10px]">{e.email} ({e.role})</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setLoginEmailInput(e.email!);
-                                          setLoginError(null);
-                                        }}
-                                        className="text-[9px] font-bold text-[#5A7060] hover:underline"
-                                      >
-                                        Use
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </div>
             </div>
 
@@ -1891,6 +1768,8 @@ export default function App() {
                   } catch (e) {
                     console.error("Failed to sign out from Firebase Auth:", e);
                   }
+                  safeLocalStorage.removeItem('pw_scholarship_bypass_admin');
+                  safeLocalStorage.removeItem('pw_scholarship_active_email');
                   setActiveEmail('');
                   setIsSandboxMode(false);
                   triggerBanner('You have been signed out successfully.', 'info');
