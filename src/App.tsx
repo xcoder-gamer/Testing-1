@@ -1617,19 +1617,6 @@ export default function App() {
                     </>
                   )}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    safeLocalStorage.setItem('pw_scholarship_bypass_admin', 'true');
-                    setActiveEmail('devansh.sharma@pw.live');
-                    triggerBanner('Access Granted: Connected as Admin (devansh.sharma@pw.live)!', 'success');
-                  }}
-                  className="w-full bg-amber-50 hover:bg-amber-100/70 text-amber-900 border border-amber-200/80 py-3 rounded-xl text-xs font-bold transition duration-150 flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-[0.99]"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
-                  <span>Connect with Admin (devansh.sharma@pw.live)</span>
-                </button>
               </div>
             </div>
 
