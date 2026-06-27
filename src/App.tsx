@@ -36,7 +36,10 @@ import {
   History,
   FileClock,
   Database,
-  BarChart3
+  BarChart3,
+  LogOut,
+  ArrowRight,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentScholarshipRow, ActivityLog, UserRoleMapping, SCHOLARSHIPS_LIST } from './types';
@@ -56,7 +59,9 @@ import {
   clearLogsInFirestore,
   getUserRolesFromFirestore
 } from './firebaseUtils';
-import { db } from './firebase';
+import { db, auth } from './firebase';
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { Chrome, Sparkles, RefreshCw, Fingerprint } from 'lucide-react';
 
 const safeLocalStorage = {
   getItem: (key: string): string | null => {
@@ -146,14 +151,139 @@ export default function App() {
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [userRolesList, setUserRolesList] = useState<UserRoleMapping[]>([]);
   const [activeEmail, setActiveEmail] = useState<string>(() => {
-    return safeLocalStorage.getItem('pw_scholarship_active_email') || 'devansh.sharma@pw.live';
+    return safeLocalStorage.getItem('pw_scholarship_active_email') || '';
   });
+
+  // Check authorization status
+  const isAuthorized = useMemo(() => {
+    const emailLower = activeEmail.toLowerCase().trim();
+    if (!emailLower) return false;
+    if (emailLower === 'devansh.sharma@pw.live') return true;
+
+    return userRolesList.some(mapping => 
+      (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
+      (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
+      (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
+      (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
+      (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
+      (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+    );
+  }, [activeEmail, userRolesList]);
+
+  // Login flow states
+  const [loginEmailInput, setLoginEmailInput] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isVerifyingLogin, setIsVerifyingLogin] = useState(false);
+  const [showAuthorizedList, setShowAuthorizedList] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setIsVerifyingLogin(true);
+    setLoginError(null);
+    const provider = new GoogleAuthProvider();
+    // Hint domain to limit accounts if preferred, but allow all first
+    provider.setCustomParameters({ prompt: 'select_account' });
+    
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const emailLower = user.email?.toLowerCase().trim() || '';
+      
+      const isAdmin = emailLower === 'devansh.sharma@pw.live';
+      const isMapped = userRolesList.some(mapping => 
+        (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
+        (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+      );
+
+      if (isAdmin || isMapped) {
+        setActiveEmail(emailLower);
+        triggerBanner(`Access Granted: Welcome back, ${emailLower}!`, 'success');
+      } else {
+        await signOut(auth);
+        setLoginError('Access Denied. Your Google account is not registered in our row permissions matrix. Please contact the administrator.');
+        triggerBanner('This Google account is not registered. Access Denied.', 'error');
+      }
+    } catch (error: any) {
+      console.error("Google Sign-In Error:", error);
+      setLoginError(`Google Auth failed: ${error.message || ''}. Note: If you are in the embedded preview, please open the app in a new tab using the top-right arrow button, or use the "Developer Bypass" option below.`);
+    } finally {
+      setIsVerifyingLogin(false);
+    }
+  };
+
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailLower = loginEmailInput.toLowerCase().trim();
+    if (!emailLower) {
+      setLoginError('Please enter a valid email address.');
+      return;
+    }
+
+    setIsVerifyingLogin(true);
+    setLoginError(null);
+
+    // Simulate verification latency
+    setTimeout(() => {
+      const isAdmin = emailLower === 'devansh.sharma@pw.live';
+      const isMapped = userRolesList.some(mapping => 
+        (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
+        (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
+        (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+      );
+
+      if (isAdmin || isMapped) {
+        setActiveEmail(emailLower);
+        triggerBanner(`Access Granted: Welcome back, ${emailLower}!`, 'success');
+        setLoginEmailInput('');
+      } else {
+        setLoginError('Access Denied. Your email is not registered in our row permissions matrix. Kindly connect with the admin.');
+      }
+      setIsVerifyingLogin(false);
+    }, 500);
+  };
 
   // Role Simulation States
   const [userRole, setUserRole] = useState<'Central' | 'RAH' | 'RFH' | 'CH' | 'FH' | 'Mentor' | 'Counselor'>('Central');
   const [simulatedRegion, setSimulatedRegion] = useState<string>('PB + J&K');
   const [simulatedCenter, setSimulatedCenter] = useState<string>('Anantnag Vidyapeeth');
   const [simulatedMentor, setSimulatedMentor] = useState<string>('Umar Sir');
+  const [isSandboxMode, setIsSandboxMode] = useState<boolean>(false);
+  const [isSandboxExpanded, setIsSandboxExpanded] = useState<boolean>(true);
+
+  // Set up Firebase Auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const emailLower = firebaseUser.email?.toLowerCase().trim() || '';
+        if (emailLower) {
+          const isAdmin = emailLower === 'devansh.sharma@pw.live';
+          const isMapped = userRolesList.some(mapping => 
+            (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
+            (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
+            (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
+            (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
+            (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
+            (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+          );
+
+          if (isAdmin || isMapped) {
+            setActiveEmail(emailLower);
+          } else {
+            await signOut(auth);
+            setLoginError('Access Denied. Your Google account is not registered in our row permissions matrix.');
+            triggerBanner('This Google account is not registered. Access Denied.', 'error');
+          }
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [userRolesList]);
 
   // Load user roles list
   const loadUserRoles = useCallback(async () => {
@@ -172,6 +302,9 @@ export default function App() {
   useEffect(() => {
     safeLocalStorage.setItem('pw_scholarship_active_email', activeEmail);
     const emailLower = activeEmail.toLowerCase().trim();
+    
+    // If in Sandbox Mode, do not automatically override simulation states
+    if (isSandboxMode) return;
     
     if (emailLower === 'devansh.sharma@pw.live') {
       setUserRole('Central');
@@ -227,13 +360,13 @@ export default function App() {
       setSimulatedCenter(foundCenter);
       setSimulatedMentor(foundMentor);
     } else {
-      // Default to Central so any new or non-restricted user can test freely
+      // Default fallback just in case, but unauthorized screen blocks access
       setUserRole('Central');
       setSimulatedRegion('PB + J&K');
       setSimulatedCenter('Anantnag Vidyapeeth');
       setSimulatedMentor('Umar Sir');
     }
-  }, [activeEmail, userRolesList]);
+  }, [activeEmail, userRolesList, isSandboxMode]);
 
   // Activity Log States & Persistence
   const [isLogsOpen, setIsLogsOpen] = useState(false);
@@ -277,6 +410,8 @@ export default function App() {
         setData(cloudStudents);
         const cloudLogs = await getLogsFromFirestore();
         setLogs(cloudLogs);
+        const roles = await getUserRolesFromFirestore();
+        setUserRolesList(roles);
       } catch (e) {
         console.error("Failed to load cloud database.", e);
       } finally {
@@ -1404,6 +1539,207 @@ export default function App() {
     );
   }
 
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-[#F4F1EA] text-stone-800 flex flex-col items-center justify-center font-sans p-4 antialiased selection:bg-[#5A7060]/20">
+        <div className="w-full max-w-md bg-white border border-[#DDD5C5] rounded-3xl shadow-xl overflow-hidden relative flex flex-col">
+          {/* Top Decorative bar */}
+          <div className="h-2 bg-[#5A7060] w-full"></div>
+          
+          {/* Inner Content */}
+          <div className="p-8 flex-1 flex flex-col justify-between">
+            <div className="space-y-6">
+              {/* Logo / Header */}
+              <div className="flex flex-col items-center text-center">
+                <div className="size-14 rounded-2xl bg-[#5A7060]/10 flex items-center justify-center text-[#5A7060] mb-4 shadow-sm border border-[#5A7060]/10">
+                  <ShieldAlert className="size-7" />
+                </div>
+                <h1 className="font-sans font-extrabold text-xl tracking-tight text-[#425246]">
+                  Scholarship Retention Portal
+                </h1>
+                <p className="text-xs text-stone-500 font-mono font-bold mt-1 uppercase tracking-wider">
+                  PW Foundation Vidyapeeth
+                </p>
+              </div>
+
+              {/* Notice Banner */}
+              <div className="bg-[#FAF8F5] border border-[#DDD5C5] p-4 rounded-2xl text-center space-y-1.5">
+                <p className="text-xs font-bold text-stone-700 flex items-center justify-center gap-1">
+                  <span>🔒 SECURE GATEWAY ACCESS</span>
+                </p>
+                <p className="text-[11px] text-stone-500 leading-relaxed">
+                  Only users registered in the active **Row Permissions Mapping** can access this application.
+                </p>
+              </div>
+
+              {/* Google Sign-In Container */}
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={isVerifyingLogin}
+                  className="w-full bg-[#5A7060] hover:bg-[#495C4E] disabled:bg-[#5A7060]/60 text-white py-3 rounded-xl text-xs font-bold transition duration-150 flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow active:scale-[0.99]"
+                >
+                  {isVerifyingLogin ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <Chrome className="w-4 h-4 shrink-0" />
+                      <span>Sign in with Google Workspace</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="h-[1px] bg-[#DDD5C5]/60 flex-1"></div>
+                <span className="text-[9px] font-mono font-extrabold text-stone-400 tracking-wider">DEVELOPER / REVIEWER BYPASS</span>
+                <div className="h-[1px] bg-[#DDD5C5]/60 flex-1"></div>
+              </div>
+
+              {/* Login Form (Bypass) */}
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-stone-600">Enter Registered Email:</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 w-4 h-4 text-stone-400" />
+                    <input
+                      type="email"
+                      required
+                      value={loginEmailInput}
+                      onChange={(e) => {
+                        setLoginEmailInput(e.target.value);
+                        if (loginError) setLoginError(null);
+                      }}
+                      placeholder="e.g. user@pw.live"
+                      className="pl-9.5 pr-4 py-2.5 w-full text-xs font-bold bg-[#FAF8F5] border border-[#DDD5C5] rounded-xl focus:ring-2 focus:ring-[#5A7060]/20 focus:border-[#5A7060] outline-hidden text-stone-800 transition"
+                      disabled={isVerifyingLogin}
+                    />
+                  </div>
+                </div>
+
+                {loginError && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] font-semibold text-red-700 flex gap-2"
+                  >
+                    <Info className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+                    <span>{loginError}</span>
+                  </motion.div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isVerifyingLogin}
+                  className="w-full bg-white hover:bg-stone-50 border border-[#DDD5C5] hover:border-stone-400 text-stone-700 py-2.5 rounded-xl text-xs font-bold transition duration-150 flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <span>Verify Email & Connect (Offline Mode)</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-stone-500" />
+                </button>
+              </form>
+
+              {/* Evaluator & Administrator Accordion helper */}
+              <div className="border border-[#DDD5C5]/60 rounded-2xl overflow-hidden bg-[#FFFDFB]">
+                <button
+                  type="button"
+                  onClick={() => setShowAuthorizedList(!showAuthorizedList)}
+                  className="w-full px-4 py-3 flex items-center justify-between text-[11px] font-bold text-stone-600 bg-[#FAF8F5] hover:bg-[#F2EDDF] transition text-left cursor-pointer border-b border-[#DDD5C5]/40"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-[#5A7060]" />
+                    <span>Show Mapped Registered Emails</span>
+                  </span>
+                  <span className="text-[10px] font-extrabold text-[#5A7060] bg-[#5A7060]/10 px-2 py-0.5 rounded-full">
+                    {userRolesList.length + 1}
+                  </span>
+                </button>
+
+                <AnimatePresence>
+                  {showAuthorizedList && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-4 space-y-3 max-h-[220px] overflow-y-auto text-[11px] leading-relaxed border-t border-[#DDD5C5]/20 divide-y divide-[#DDD5C5]/20">
+                        <div className="pb-2 flex items-center justify-between gap-1.5">
+                          <div>
+                            <p className="font-bold text-stone-800">devansh.sharma@pw.live</p>
+                            <p className="text-[9px] text-stone-500 font-mono">Master Administrator</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLoginEmailInput('devansh.sharma@pw.live');
+                              setLoginError(null);
+                            }}
+                            className="text-[10px] font-bold text-[#5A7060] bg-[#5A7060]/10 hover:bg-[#5A7060]/20 px-2 py-1 rounded-lg transition"
+                          >
+                            Use
+                          </button>
+                        </div>
+                        {userRolesList.length === 0 ? (
+                          <p className="pt-2 text-[10px] text-stone-400 font-medium italic">
+                            No row permission mappings loaded yet. Log in as master admin to configure mappings first.
+                          </p>
+                        ) : (
+                          userRolesList.map((mapping, idx) => {
+                            const emails = [
+                              { email: mapping.rahMailid, role: 'RAH' },
+                              { email: mapping.rfhMailid, role: 'RFH' },
+                              { email: mapping.chMailid, role: 'CH' },
+                              { email: mapping.fhMailid, role: 'FH' },
+                              { email: mapping.mentorId, role: 'Mentor' },
+                              { email: mapping.counselorId, role: 'Counselor' },
+                            ].filter(item => item.email && item.email.trim() !== '');
+
+                            if (emails.length === 0) return null;
+
+                            return (
+                              <div key={idx} className="py-2 space-y-1.5">
+                                <p className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">
+                                  {mapping.region} • {mapping.center}
+                                </p>
+                                <div className="space-y-1">
+                                  {emails.map((e, eIdx) => (
+                                    <div key={eIdx} className="flex items-center justify-between gap-2 pl-2">
+                                      <span className="text-stone-700 truncate font-medium text-[10px]">{e.email} ({e.role})</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setLoginEmailInput(e.email!);
+                                          setLoginError(null);
+                                        }}
+                                        className="text-[9px] font-bold text-[#5A7060] hover:underline"
+                                      >
+                                        Use
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div className="mt-8 text-center text-[9px] text-stone-400 font-medium leading-relaxed">
+              Kindly connect with Devansh Sharma (**devansh.sharma@pw.live**) or system admin if you require access mapping.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-stone-800 flex flex-col font-sans select-none antialiased">
       
@@ -1516,6 +1852,31 @@ export default function App() {
             <span className="bg-stone-200 border border-stone-300 text-stone-700 text-[9px] font-extrabold px-1.5 py-0.5 rounded-sm uppercase">
               {userRole}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              triggerConfirm(
+                'Disconnect Session',
+                'Are you sure you want to end your current session and sign out?',
+                async () => {
+                  try {
+                    await signOut(auth);
+                  } catch (e) {
+                    console.error("Failed to sign out from Firebase Auth:", e);
+                  }
+                  setActiveEmail('');
+                  setIsSandboxMode(false);
+                  triggerBanner('You have been signed out successfully.', 'info');
+                }
+              );
+            }}
+            className="flex items-center gap-1.5 bg-[#FAF8F5] hover:bg-rose-50 border border-rose-200 text-rose-700 hover:text-rose-800 px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
+            title="Sign out of the current session"
+          >
+            <LogOut className="w-3.5 h-3.5 text-rose-500" />
+            <span className="hidden md:inline">Sign Out</span>
           </button>
 
           <div className="h-6 w-[1px] bg-[#E3DEC3] hidden sm:block"></div>
@@ -4546,6 +4907,242 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* Exclusive Admin Sandbox & Simulation Panel */}
+      {activeEmail.toLowerCase().trim() === 'devansh.sharma@pw.live' && (
+        <div className="mx-6 mb-6">
+          <div className="bg-[#FAF0E4] border-2 border-[#E3DEC3] rounded-3xl shadow-md overflow-hidden transition-all duration-300">
+            {/* Panel Header */}
+            <div className="flex justify-between items-center bg-[#F4EADA] px-5 py-3 border-b border-[#E3DEC3] select-none">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-[#A25A38]" />
+                <h3 className="font-serif font-bold text-xs text-[#5C4D3C] tracking-tight">
+                  Admin Sandbox & Simulation Control Console
+                </h3>
+                {isSandboxMode ? (
+                  <span className="text-[9px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full animate-pulse uppercase tracking-wider">
+                    Simulation Active
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-stone-200 text-stone-600 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Actual Admin view
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {isSandboxMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSandboxMode(false);
+                      triggerBanner('Sandbox simulator disabled. Restored actual master credentials.', 'info');
+                    }}
+                    className="text-[10px] text-[#A25A38] hover:text-[#8F4E30] font-extrabold flex items-center gap-1 bg-[#FAF0E4] border border-[#E3DEC3] px-2.5 py-1 rounded-xl transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Reset View
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsSandboxExpanded(!isSandboxExpanded)}
+                  className="text-stone-500 hover:text-stone-800 p-1 rounded-lg hover:bg-stone-200/50 transition cursor-pointer"
+                >
+                  {isSandboxExpanded ? (
+                    <ChevronLeft className="w-4 h-4 rotate-90" />
+                  ) : (
+                    <ChevronLeft className="w-4 h-4 -rotate-90" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Panel Body */}
+            <AnimatePresence>
+              {isSandboxExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="p-5 overflow-hidden"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                    {/* Role Toggles */}
+                    <div className="bg-white/70 border border-[#E3DEC3] rounded-2xl p-4 space-y-3">
+                      <h4 className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider flex items-center gap-1">
+                        <Fingerprint className="w-3.5 h-3.5 text-[#A25A38]" /> 1. Simulate Role
+                      </h4>
+                      <p className="text-[10px] text-stone-500 font-semibold leading-relaxed">
+                        Instantly test quota rules, tab visibility, and editable fields from any role.
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {(['Central', 'RAH', 'RFH', 'CH', 'FH', 'Mentor', 'Counselor'] as const).map((role) => (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => {
+                              setIsSandboxMode(true);
+                              setUserRole(role);
+                              triggerBanner(`Sandbox: Role updated to ${role}.`, 'info');
+                            }}
+                            className={`px-2.5 py-1 text-[10px] font-bold rounded-xl transition cursor-pointer ${
+                              userRole === role && isSandboxMode
+                                ? 'bg-[#A25A38] text-white shadow-xs'
+                                : 'bg-[#FAF8F5] text-stone-600 hover:bg-[#F2EDDF] border border-stone-200'
+                            }`}
+                          >
+                            {role}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Dimension Override Selectors */}
+                    <div className="bg-white/70 border border-[#E3DEC3] rounded-2xl p-4 space-y-3 md:col-span-2">
+                      <h4 className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-[#A25A38]" /> 2. Simulate Dimensions (Region / Center / Mentor)
+                      </h4>
+                      <p className="text-[10px] text-stone-500 font-semibold leading-relaxed">
+                        Select custom region/center parameters to check row-level and quota filtering behaviors in real-time.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                        {/* Region Selector */}
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-stone-500 block uppercase">Region</label>
+                          <select
+                            value={simulatedRegion}
+                            onChange={(e) => {
+                              setIsSandboxMode(true);
+                              setSimulatedRegion(e.target.value);
+                              triggerBanner(`Sandbox: Simulated Region changed to ${e.target.value}`, 'info');
+                            }}
+                            className="w-full text-[10px] font-bold bg-[#FAF8F5] border border-stone-200 rounded-lg px-2 py-1.5 outline-hidden focus:ring-1 focus:ring-[#A25A38]/35"
+                          >
+                            {availableRegions.map(reg => (
+                              <option key={reg} value={reg}>{reg}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Center Selector */}
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-stone-500 block uppercase">Center</label>
+                          <select
+                            value={simulatedCenter}
+                            onChange={(e) => {
+                              setIsSandboxMode(true);
+                              setSimulatedCenter(e.target.value);
+                              triggerBanner(`Sandbox: Simulated Center changed to ${e.target.value}`, 'info');
+                            }}
+                            className="w-full text-[10px] font-bold bg-[#FAF8F5] border border-stone-200 rounded-lg px-2 py-1.5 outline-hidden focus:ring-1 focus:ring-[#A25A38]/35"
+                          >
+                            {availableCenters.map(cen => (
+                              <option key={cen} value={cen}>{cen}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Mentor Selector */}
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-stone-500 block uppercase">Mentor</label>
+                          <select
+                            value={simulatedMentor}
+                            onChange={(e) => {
+                              setIsSandboxMode(true);
+                              setSimulatedMentor(e.target.value);
+                              triggerBanner(`Sandbox: Simulated Mentor changed to ${e.target.value}`, 'info');
+                            }}
+                            className="w-full text-[10px] font-bold bg-[#FAF8F5] border border-stone-200 rounded-lg px-2 py-1.5 outline-hidden focus:ring-1 focus:ring-[#A25A38]/35"
+                          >
+                            {availableMentors.map(men => (
+                              <option key={men} value={men}>{men}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pre-configured Mapped User Profiles list */}
+                    <div className="bg-white/70 border border-[#E3DEC3] rounded-2xl p-4 space-y-3">
+                      <h4 className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5 text-[#A25A38]" /> 3. Fast-Impersonate Registered User
+                      </h4>
+                      <p className="text-[10px] text-stone-500 font-semibold leading-relaxed">
+                        Pick any registered user from your Firestore permissions schema to impersonate their complete identity.
+                      </p>
+                      <div className="pt-1">
+                        <select
+                          onChange={(e) => {
+                            const emailSelected = e.target.value;
+                            if (!emailSelected) return;
+
+                            // Find mapping
+                            const mapping = userRolesList.find(m => 
+                              m.rahMailid?.toLowerCase() === emailSelected.toLowerCase() ||
+                              m.rfhMailid?.toLowerCase() === emailSelected.toLowerCase() ||
+                              m.chMailid?.toLowerCase() === emailSelected.toLowerCase() ||
+                              m.fhMailid?.toLowerCase() === emailSelected.toLowerCase() ||
+                              m.mentorId?.toLowerCase() === emailSelected.toLowerCase() ||
+                              m.counselorId?.toLowerCase() === emailSelected.toLowerCase()
+                            );
+
+                            if (mapping) {
+                              setIsSandboxMode(true);
+                              let mappedRole: 'Central' | 'RAH' | 'RFH' | 'CH' | 'FH' | 'Mentor' | 'Counselor' = 'Central';
+                              let r = mapping.region || 'PB + J&K';
+                              let c = mapping.center || 'Anantnag Vidyapeeth';
+                              let m = mapping.mentorId || 'Umar Sir';
+
+                              if (mapping.rahMailid?.toLowerCase() === emailSelected.toLowerCase()) {
+                                mappedRole = 'RAH';
+                              } else if (mapping.rfhMailid?.toLowerCase() === emailSelected.toLowerCase()) {
+                                mappedRole = 'RFH';
+                              } else if (mapping.chMailid?.toLowerCase() === emailSelected.toLowerCase()) {
+                                mappedRole = 'CH';
+                              } else if (mapping.fhMailid?.toLowerCase() === emailSelected.toLowerCase()) {
+                                mappedRole = 'FH';
+                              } else if (mapping.mentorId?.toLowerCase() === emailSelected.toLowerCase()) {
+                                mappedRole = 'Mentor';
+                              } else if (mapping.counselorId?.toLowerCase() === emailSelected.toLowerCase()) {
+                                mappedRole = 'Counselor';
+                              }
+
+                              setUserRole(mappedRole);
+                              setSimulatedRegion(r);
+                              setSimulatedCenter(c);
+                              setSimulatedMentor(m);
+                              triggerBanner(`Sandbox: Impersonating ${emailSelected} (${mappedRole})`, 'success');
+                            }
+                          }}
+                          className="w-full text-[10px] font-bold bg-[#FAF8F5] border border-stone-200 rounded-lg px-2 py-1.5 outline-hidden focus:ring-1 focus:ring-[#A25A38]/35"
+                          defaultValue=""
+                        >
+                          <option value="" disabled>-- Select Profile --</option>
+                          {userRolesList.map((mapping, mIdx) => {
+                            const items = [
+                              { email: mapping.rahMailid, role: 'RAH' },
+                              { email: mapping.rfhMailid, role: 'RFH' },
+                              { email: mapping.chMailid, role: 'CH' },
+                              { email: mapping.fhMailid, role: 'FH' },
+                              { email: mapping.mentorId, role: 'Mentor' },
+                              { email: mapping.counselorId, role: 'Counselor' },
+                            ].filter(i => i.email && i.email.trim() !== '');
+
+                            return items.map((item, iIdx) => (
+                              <option key={`${mIdx}-${iIdx}`} value={item.email}>
+                                {item.email} ({item.role})
+                              </option>
+                            ));
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       {/* Humble Footer */}
       <footer className="py-4 px-6 border-t border-[#E3DEC3] bg-[#FAF8F5] text-center text-[10px] text-stone-500 hover:text-stone-700 select-none transition mt-auto shrink-0 font-medium font-mono">
