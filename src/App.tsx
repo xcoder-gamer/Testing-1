@@ -160,6 +160,10 @@ export default function App() {
   const [activeEmail, setActiveEmail] = useState<string>('');
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
+  const isAdmin = useMemo(() => {
+    return activeEmail.toLowerCase().trim() === 'devansh.sharma@pw.live';
+  }, [activeEmail]);
+
   // Check authorization status
   const isAuthorized = useMemo(() => {
     const emailLower = activeEmail.toLowerCase().trim();
@@ -1696,56 +1700,60 @@ export default function App() {
 
         {/* Global actions */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <button 
-            type="button"
-            onClick={() => setIsAddOpen(true)}
-            className="flex items-center gap-1.5 bg-[#5A7060] text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#4E6052] transition shadow-xs cursor-pointer"
-            id="add-student-btn"
-          >
-            <Plus className="w-4 h-4" /> Add Student
-          </button>
+          {isAdmin && (
+            <>
+              <button 
+                type="button"
+                onClick={() => setIsAddOpen(true)}
+                className="flex items-center gap-1.5 bg-[#5A7060] text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#4E6052] transition shadow-xs cursor-pointer"
+                id="add-student-btn"
+              >
+                <Plus className="w-4 h-4" /> Add Student
+              </button>
 
-          <button 
-            type="button"
-            onClick={() => setIsImportOpen(true)}
-            className="flex items-center gap-1.5 bg-[#FAF8F5] text-stone-700 border border-[#DDD5C5] px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#F2EDDF] transition shadow-xs cursor-pointer"
-            id="import-data-btn"
-          >
-            <Upload className="w-4 h-4" /> Import Data
-          </button>
+              <button 
+                type="button"
+                onClick={() => setIsImportOpen(true)}
+                className="flex items-center gap-1.5 bg-[#FAF8F5] text-stone-700 border border-[#DDD5C5] px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#F2EDDF] transition shadow-xs cursor-pointer"
+                id="import-data-btn"
+              >
+                <Upload className="w-4 h-4" /> Import Data
+              </button>
 
-          <button 
-            type="button"
-            onClick={() => setIsLogsOpen(true)}
-            className="flex items-center gap-1.5 bg-[#FAF8F5] text-stone-700 border border-[#DDD5C5] px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#F2EDDF] transition shadow-xs cursor-pointer relative"
-            id="history-logs-btn"
-            title="View system change logs & audit trail"
-          >
-            <History className="w-4 h-4 text-[#5A7060]" /> 
-            <span>History Logs</span>
-            {logs.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-[#A25A38] text-white text-[9px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center scale-90">
-                {logs.length > 99 ? '99+' : logs.length}
-              </span>
-            )}
-          </button>
+              <button 
+                type="button"
+                onClick={() => setIsLogsOpen(true)}
+                className="flex items-center gap-1.5 bg-[#FAF8F5] text-stone-700 border border-[#DDD5C5] px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#F2EDDF] transition shadow-xs cursor-pointer relative"
+                id="history-logs-btn"
+                title="View system change logs & audit trail"
+              >
+                <History className="w-4 h-4 text-[#5A7060]" /> 
+                <span>History Logs</span>
+                {logs.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-[#A25A38] text-white text-[9px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center scale-90">
+                    {logs.length > 99 ? '99+' : logs.length}
+                  </span>
+                )}
+              </button>
 
-          <button 
-            type="button"
-            onClick={() => setIsRoleModalOpen(true)}
-            className="flex items-center gap-1.5 bg-[#FBF5EC] text-[#8C764D] border border-[#ECE0CE] hover:bg-[#F4EADA] transition px-4 py-2 rounded-xl text-xs font-semibold shadow-xs cursor-pointer"
-            id="role-permissions-btn"
-            title="Manage user email role permission mapping"
-          >
-            <ShieldCheck className="w-4 h-4 text-[#8C764D]" /> 
-            <span>Role Permissions</span>
-          </button>
+              <button 
+                type="button"
+                onClick={() => setIsRoleModalOpen(true)}
+                className="flex items-center gap-1.5 bg-[#FBF5EC] text-[#8C764D] border border-[#ECE0CE] hover:bg-[#F4EADA] transition px-4 py-2 rounded-xl text-xs font-semibold shadow-xs cursor-pointer"
+                id="role-permissions-btn"
+                title="Manage user email role permission mapping"
+              >
+                <ShieldCheck className="w-4 h-4 text-[#8C764D]" /> 
+                <span>Role Permissions</span>
+              </button>
+            </>
+          )}
 
           <button
             type="button"
-            onClick={() => setIsRoleModalOpen(true)}
-            className="flex items-center gap-2 bg-[#FAF8F5] border border-[#DDD5C5] hover:bg-[#F2EDDF] px-3 py-1.5 rounded-xl transition text-left cursor-pointer"
-            title="Click to view and configure user role permissions"
+            onClick={isAdmin ? () => setIsRoleModalOpen(true) : undefined}
+            className={`flex items-center gap-2 bg-[#FAF8F5] border border-[#DDD5C5] px-3 py-1.5 rounded-xl transition text-left ${isAdmin ? 'hover:bg-[#F2EDDF] cursor-pointer' : 'cursor-default'}`}
+            title={isAdmin ? "Click to view and configure user role permissions" : "Your active user profile info"}
           >
             <div className="w-6 h-6 rounded-full bg-[#5A7060]/10 flex items-center justify-center text-[#5A7060]">
               <User className="w-3.5 h-3.5" />
@@ -1807,35 +1815,39 @@ export default function App() {
             </button>
           </div>
 
-          <button 
-            type="button"
-            onClick={handleResetData}
-            className="bg-[#FAF8F5] text-[#5C4D3C] border border-[#DDD5C5] hover:bg-[#F2EDDF] hover:text-[#413524] px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
-            title="Reset data to initial foundation profiles"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Reset To Template</span>
-          </button>
+          {isAdmin && (
+            <>
+              <button 
+                type="button"
+                onClick={handleResetData}
+                className="bg-[#FAF8F5] text-[#5C4D3C] border border-[#DDD5C5] hover:bg-[#F2EDDF] hover:text-[#413524] px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                title="Reset data to initial foundation profiles"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Reset To Template</span>
+              </button>
 
-          <button 
-            type="button"
-            onClick={handleDeleteFilteredStudents}
-            className="bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
-            title={`Delete only the ${filteredData.length} currently filtered student records`}
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-            <span className="hidden md:inline">Delete Filtered ({filteredData.length})</span>
-          </button>
+              <button 
+                type="button"
+                onClick={handleDeleteFilteredStudents}
+                className="bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+                title={`Delete only the ${filteredData.length} currently filtered student records`}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span className="hidden md:inline">Delete Filtered ({filteredData.length})</span>
+              </button>
 
-          <button 
-            type="button"
-            onClick={handleClearAllStudents}
-            className="bg-red-600 text-white hover:bg-red-700 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
-            title={`Permanently delete all ${data.length} student records in the database`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Clear All Students ({data.length})</span>
-          </button>
+              <button 
+                type="button"
+                onClick={handleClearAllStudents}
+                className="bg-red-600 text-white hover:bg-red-700 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+                title={`Permanently delete all ${data.length} student records in the database`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Clear All Students ({data.length})</span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -3384,14 +3396,16 @@ export default function App() {
                               <Maximize2 className="w-3 h-3 text-[#4A5D4F]" />
                               <span>Edit Drawer</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRow(row.id, row.studentName)}
-                              className="text-stone-500 hover:text-rose-600 bg-[#FAFBF9] hover:bg-rose-50 p-1.5 rounded-lg border border-stone-200 hover:border-rose-200 transition duration-150 cursor-pointer select-none shadow-3xs"
-                              title={`Permanently delete student profile: ${row.studentName}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRow(row.id, row.studentName)}
+                                className="text-stone-500 hover:text-rose-600 bg-[#FAFBF9] hover:bg-rose-50 p-1.5 rounded-lg border border-stone-200 hover:border-rose-200 transition duration-150 cursor-pointer select-none shadow-3xs"
+                                title={`Permanently delete student profile: ${row.studentName}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
