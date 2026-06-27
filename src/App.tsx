@@ -1331,11 +1331,35 @@ export default function App() {
         const currentEmail = activeEmail.toLowerCase().trim();
         let emailMatchedInRow = false;
         
-        // Strictly only show rows where the user's email matches one of the values in the row (e.g. mentorMailid or counselor)
-        for (const val of Object.values(row)) {
-          if (typeof val === 'string' && val.toLowerCase().trim().includes(currentEmail)) {
+        // Check userRolesList mapping for this student (matches via registration number)
+        const mapping = userRolesList.find(m => m.regno === row.regNo);
+        if (mapping) {
+          const rah = (mapping.rahMailid || '').toLowerCase().trim();
+          const rfh = (mapping.rfhMailid || '').toLowerCase().trim();
+          const ch = (mapping.chMailid || '').toLowerCase().trim();
+          const fh = (mapping.fhMailid || '').toLowerCase().trim();
+          const mentor = (mapping.mentorId || '').toLowerCase().trim();
+          const counselor = (mapping.counselorId || '').toLowerCase().trim();
+
+          if (
+            rah === currentEmail ||
+            rfh === currentEmail ||
+            ch === currentEmail ||
+            fh === currentEmail ||
+            mentor === currentEmail ||
+            counselor === currentEmail
+          ) {
             emailMatchedInRow = true;
-            break;
+          }
+        }
+
+        // Fallback: Also check if active email is written inside any string property of the row (e.g. mentorMailid or other cell)
+        if (!emailMatchedInRow) {
+          for (const val of Object.values(row)) {
+            if (typeof val === 'string' && val.toLowerCase().trim().includes(currentEmail)) {
+              emailMatchedInRow = true;
+              break;
+            }
           }
         }
         
@@ -1394,7 +1418,7 @@ export default function App() {
 
       return true;
     });
-  }, [data, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, getStudentPendency, userRole, simulatedRegion, simulatedCenter, simulatedMentor, activeEmail]);
+  }, [data, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, getStudentPendency, userRole, simulatedRegion, simulatedCenter, simulatedMentor, activeEmail, userRolesList]);
 
   // Export as CSV File
   const handleExportCSV = () => {
