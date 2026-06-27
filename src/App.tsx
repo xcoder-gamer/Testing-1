@@ -1331,8 +1331,7 @@ export default function App() {
         const currentEmail = activeEmail.toLowerCase().trim();
         let emailMatchedInRow = false;
         
-        // "any mailid in this row then they shown the complete detail simple"
-        // Check if active email is written inside any string property of the row (e.g. mentorMailid or other cell)
+        // Strictly only show rows where the user's email matches one of the values in the row (e.g. mentorMailid or counselor)
         for (const val of Object.values(row)) {
           if (typeof val === 'string' && val.toLowerCase().trim().includes(currentEmail)) {
             emailMatchedInRow = true;
@@ -1340,15 +1339,8 @@ export default function App() {
           }
         }
         
-        // If email matches any cell, show the complete details; otherwise check default role boundaries
         if (!emailMatchedInRow) {
-          if (userRole === 'RAH' || userRole === 'RFH') {
-            if (row.region !== simulatedRegion) return false;
-          } else if (userRole === 'CH' || userRole === 'FH') {
-            if (row.center !== simulatedCenter) return false;
-          } else if (userRole === 'Mentor') {
-            if (row.center !== simulatedCenter || row.mentor !== simulatedMentor) return false;
-          }
+          return false;
         }
       }
 
