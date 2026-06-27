@@ -263,6 +263,13 @@ export default function App() {
         const emailLower = firebaseUser.email?.toLowerCase().trim() || '';
         if (emailLower) {
           const isAdmin = emailLower === 'devansh.sharma@pw.live';
+          
+          // Wait until roles are loaded before evaluating mapping
+          if (userRolesList.length === 0) {
+            setActiveEmail(emailLower);
+            return;
+          }
+
           const isMapped = userRolesList.some(mapping => 
             (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
             (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
@@ -278,6 +285,7 @@ export default function App() {
             await signOut(auth);
             setLoginError('Access Denied. Your Google account is not registered in our row permissions matrix.');
             triggerBanner('This Google account is not registered. Access Denied.', 'error');
+            setActiveEmail('');
           }
         }
       }
@@ -311,6 +319,11 @@ export default function App() {
       setSimulatedRegion('PB + J&K');
       setSimulatedCenter('Anantnag Vidyapeeth');
       setSimulatedMentor('Umar Sir');
+      return;
+    }
+
+    // Wait until roles are loaded to map correct role to email
+    if (activeEmail && userRolesList.length === 0) {
       return;
     }
     
@@ -1572,8 +1585,8 @@ export default function App() {
                 </p>
               </div>
 
-              {/* Google Sign-In Container */}
-              <div className="space-y-3">
+              {/* Google Sign-In & Admin Bypass Container */}
+              <div className="space-y-2.5">
                 <button
                   type="button"
                   onClick={handleGoogleSignIn}
@@ -1588,6 +1601,18 @@ export default function App() {
                       <span>Sign in with Google Workspace</span>
                     </>
                   )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveEmail('devansh.sharma@pw.live');
+                    triggerBanner('Access Granted: Connected as Admin (devansh.sharma@pw.live)!', 'success');
+                  }}
+                  className="w-full bg-amber-50 hover:bg-amber-100/70 text-amber-900 border border-amber-200/80 py-3 rounded-xl text-xs font-bold transition duration-150 flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-[0.99]"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
+                  <span>Connect with Admin (devansh.sharma@pw.live)</span>
                 </button>
               </div>
 
