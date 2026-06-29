@@ -23,6 +23,7 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   TrendingDown,
   Trash2,
   Check,
@@ -97,6 +98,52 @@ const safeConfirm = (message: string): boolean => {
   }
 };
 
+export interface AtRiskStudent {
+  regNo: string;
+  studentName: string;
+  risk: string; // 'Low' | 'Medium' | 'High'
+  ptmStatus: string;
+  remarks: string;
+  discontinueReason: string;
+  scholarship: string;
+  proposedScholarship: string;
+  status: string;
+}
+
+export interface TreeStats {
+  total: number;
+  retained: number;
+  notRetained: number;
+  extraReq: number;
+  pending: number;
+  whatsapp: number;
+  ptmDone: number;
+  students: AtRiskStudent[];
+}
+
+export interface ClassNode extends TreeStats {
+  mentors: string[];
+  counselors: string[];
+}
+
+export interface BuildingNode extends TreeStats {
+  fhs: string[];
+  chs: string[];
+  classes: { [name: string]: ClassNode };
+}
+
+export interface CenterNode extends TreeStats {
+  chs: string[];
+  rfhs: string[];
+  buildings: { [name: string]: BuildingNode };
+}
+
+export interface RegionNode extends TreeStats {
+  rahs: string[];
+  rfhs: string[];
+  centers: { [name: string]: CenterNode };
+}
+
 export default function App() {
   // State management
   const [data, setData] = useState<StudentScholarshipRow[]>(() => {
@@ -136,6 +183,13 @@ export default function App() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
 
+  // Perspective Auditing State
+  const [selectedPerspectiveRegNo, setSelectedPerspectiveRegNo] = useState<string | null>(null);
+
+  const selectedPerspectiveStudent = useMemo(() => {
+    return data.find(s => s.regNo === selectedPerspectiveRegNo) || null;
+  }, [data, selectedPerspectiveRegNo]);
+
   // Custom Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     title: string;
@@ -161,14 +215,15 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const isAdmin = useMemo(() => {
-    return activeEmail.toLowerCase().trim() === 'devansh.sharma@pw.live';
+    const emailLower = activeEmail.toLowerCase().trim();
+    return emailLower === 'devansh.sharma@pw.live' || emailLower === 'bipin.yadav@pw.live';
   }, [activeEmail]);
 
   // Check authorization status
   const isAuthorized = useMemo(() => {
     const emailLower = activeEmail.toLowerCase().trim();
     if (!emailLower) return false;
-    if (emailLower === 'devansh.sharma@pw.live') return true;
+    if (emailLower === 'devansh.sharma@pw.live' || emailLower === 'bipin.yadav@pw.live') return true;
 
     return userRolesList.some(mapping => 
       (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
@@ -198,7 +253,7 @@ export default function App() {
       const user = result.user;
       const emailLower = user.email?.toLowerCase().trim() || '';
       
-      const isAdmin = emailLower === 'devansh.sharma@pw.live';
+      const isAdmin = emailLower === 'devansh.sharma@pw.live' || emailLower === 'bipin.yadav@pw.live';
       const isMapped = userRolesList.some(mapping => 
         (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
         (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
@@ -237,7 +292,7 @@ export default function App() {
 
     // Simulate verification latency
     setTimeout(() => {
-      const isAdmin = emailLower === 'devansh.sharma@pw.live';
+      const isAdmin = emailLower === 'devansh.sharma@pw.live' || emailLower === 'bipin.yadav@pw.live';
       const isMapped = userRolesList.some(mapping => 
         (mapping.rahMailid && mapping.rahMailid.toLowerCase().trim() === emailLower) ||
         (mapping.rfhMailid && mapping.rfhMailid.toLowerCase().trim() === emailLower) ||
@@ -272,7 +327,7 @@ export default function App() {
       if (firebaseUser) {
         const emailLower = firebaseUser.email?.toLowerCase().trim() || '';
         if (emailLower) {
-          const isAdmin = emailLower === 'devansh.sharma@pw.live';
+          const isAdmin = emailLower === 'devansh.sharma@pw.live' || emailLower === 'bipin.yadav@pw.live';
           
           // Wait until roles are loaded before evaluating mapping
           if (userRolesList.length === 0) {
@@ -333,7 +388,7 @@ export default function App() {
     // If in Sandbox Mode, do not automatically override simulation states
     if (isSandboxMode) return;
     
-    if (emailLower === 'devansh.sharma@pw.live') {
+     if (emailLower === 'devansh.sharma@pw.live' || emailLower === 'bipin.yadav@pw.live') {
       setUserRole('Central');
       setSimulatedRegion('PB + J&K');
       setSimulatedCenter('Anantnag Vidyapeeth');
@@ -790,6 +845,11 @@ export default function App() {
   const [summaryPtmStatus, setSummaryPtmStatus] = useState<string>('All');
   const [summaryRetention, setSummaryRetention] = useState<string>('All');
 
+  // Expand/collapse states for regional hierarchy drill-down
+  const [expandedRegions, setExpandedRegions] = useState<{ [key: string]: boolean }>({});
+  const [expandedCenters, setExpandedCenters] = useState<{ [key: string]: boolean }>({});
+  const [expandedBuildings, setExpandedBuildings] = useState<{ [key: string]: boolean }>({});
+
   // Status/Notifications state
   const [bannerMessage, setBannerMessage] = useState<{ type: 'success' | 'info' | 'error', text: string } | null>(null);
 
@@ -875,7 +935,14 @@ export default function App() {
     const groups: { [key: string]: { total: number; retained: number; notRetained: number; extraReq: number; pending: number; whatsapp: number; ptmDone: number; highRisk: number } } = {};
     
     filteredSummaryData.forEach(item => {
-      const val = String(item[field] || 'Unknown');
+      let val = String(item[field] || '').trim();
+      if (field === 'counselorName' && !val) {
+        const mapping = userRolesList.find(m => m.regno === item.regNo);
+        val = mapping?.counselorId?.trim() || '';
+      }
+      if (!val) {
+        val = 'Unassigned';
+      }
       if (!groups[val]) {
         groups[val] = { total: 0, retained: 0, notRetained: 0, extraReq: 0, pending: 0, whatsapp: 0, ptmDone: 0, highRisk: 0 };
       }
@@ -889,7 +956,7 @@ export default function App() {
       else g.pending += 1;
 
       if (item.whatsappIntimation) g.whatsapp += 1;
-      if (item.ptmStatus && (item.ptmStatus.toLowerCase().includes('done') || item.ptmStatus.toLowerCase().includes('completed'))) g.ptmDone += 1;
+      if (item.ptmStatus && (item.ptmStatus.toLowerCase().includes('done') || item.ptmStatus.toLowerCase().includes('completed') || item.ptmStatus.toLowerCase().includes('conducted'))) g.ptmDone += 1;
       if (item.retentionProbability === 'Low') g.highRisk += 1;
     });
 
@@ -900,7 +967,161 @@ export default function App() {
       whatsappRate: stats.total > 0 ? Math.round((stats.whatsapp / stats.total) * 100) : 0,
       ptmRate: stats.total > 0 ? Math.round((stats.ptmDone / stats.total) * 100) : 0,
     })).sort((a, b) => b.total - a.total); // Sort by total student count descending
-  }, [filteredSummaryData]);
+  }, [filteredSummaryData, userRolesList]);
+
+  // Hierarchical Drill Down structure: Region -> Center -> Building -> Class
+  const hierarchicalCuts = useMemo((): { [name: string]: RegionNode } => {
+    const tree: { [name: string]: RegionNode } = {};
+
+    filteredSummaryData.forEach(item => {
+      const r = (item.region || 'Unassigned Region').trim();
+      const c = (item.center || 'Unassigned Center').trim();
+      const b = (item.building || 'Unassigned Building').trim();
+      const cl = (item.class || 'Unassigned Class').trim();
+
+      const mapping = userRolesList.find(m => m.regno === item.regNo);
+
+      if (!tree[r]) {
+        tree[r] = { total: 0, retained: 0, notRetained: 0, extraReq: 0, pending: 0, whatsapp: 0, ptmDone: 0, rahs: [], rfhs: [], centers: {}, students: [] };
+      }
+      if (!tree[r].centers[c]) {
+        tree[r].centers[c] = { total: 0, retained: 0, notRetained: 0, extraReq: 0, pending: 0, whatsapp: 0, ptmDone: 0, chs: [], rfhs: [], buildings: {}, students: [] };
+      }
+      if (!tree[r].centers[c].buildings[b]) {
+        tree[r].centers[c].buildings[b] = { total: 0, retained: 0, notRetained: 0, extraReq: 0, pending: 0, whatsapp: 0, ptmDone: 0, fhs: [], chs: [], classes: {}, students: [] };
+      }
+      if (!tree[r].centers[c].buildings[b].classes[cl]) {
+        tree[r].centers[c].buildings[b].classes[cl] = { total: 0, retained: 0, notRetained: 0, extraReq: 0, pending: 0, whatsapp: 0, ptmDone: 0, mentors: [], counselors: [], students: [] };
+      }
+
+      const addUnique = (arr: string[], email: string | undefined) => {
+        if (email && email.trim() && !arr.includes(email.trim().toLowerCase())) {
+          arr.push(email.trim().toLowerCase());
+        }
+      };
+
+      if (mapping) {
+        addUnique(tree[r].rahs, mapping.rahMailid);
+        addUnique(tree[r].rfhs, mapping.rfhMailid);
+        addUnique(tree[r].centers[c].chs, mapping.chMailid);
+        addUnique(tree[r].centers[c].rfhs, mapping.rfhMailid);
+        addUnique(tree[r].centers[c].buildings[b].fhs, mapping.fhMailid);
+        addUnique(tree[r].centers[c].buildings[b].chs, mapping.chMailid);
+        addUnique(tree[r].centers[c].buildings[b].classes[cl].mentors, mapping.mentorId);
+        addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, mapping.counselorId);
+      }
+      
+      if (item.counselorName) addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, item.counselorName);
+      if (item.mentorMailid) addUnique(tree[r].centers[c].buildings[b].classes[cl].mentors, item.mentorMailid);
+
+      const studentObj: AtRiskStudent = {
+        regNo: item.regNo,
+        studentName: item.studentName || 'Unknown Student',
+        risk: item.retentionProbability || 'High', // Probability of retention (High, Medium, Low)
+        ptmStatus: item.ptmStatus || 'Pending',
+        remarks: item.parentRemarks || '',
+        discontinueReason: item.discontinueReason || '',
+        scholarship: item.scholarship || '',
+        proposedScholarship: item.proposedScholarship || '',
+        status: item.finalRetentionStatus || 'Pending'
+      };
+
+      const incrementStats = (g: TreeStats) => {
+        g.total += 1;
+        const status = item.finalRetentionStatus || 'Pending';
+        if (status === 'Ready to get retained' || status === 'Retained') g.retained += 1;
+        else if (status === 'Not Retained') g.notRetained += 1;
+        else if (status === 'Extra Scholarship Required') g.extraReq += 1;
+        else g.pending += 1;
+
+        if (item.whatsappIntimation) g.whatsapp += 1;
+        if (item.ptmStatus && (item.ptmStatus.toLowerCase().includes('done') || item.ptmStatus.toLowerCase().includes('completed') || item.ptmStatus.toLowerCase().includes('conducted'))) {
+          g.ptmDone += 1;
+        }
+        g.students.push(studentObj);
+      };
+
+      incrementStats(tree[r]);
+      incrementStats(tree[r].centers[c]);
+      incrementStats(tree[r].centers[c].buildings[b]);
+      incrementStats(tree[r].centers[c].buildings[b].classes[cl]);
+    });
+
+    return tree;
+  }, [filteredSummaryData, userRolesList]);
+
+  // Helper to render role mapping badges cleanly in the summary table
+  const renderRoleBadges = useCallback((roleName: string, list: string[], colorClass: string) => {
+    if (list.length === 0) return null;
+    return (
+      <div className="flex flex-wrap gap-1 items-center">
+        <span className="text-[9px] font-extrabold uppercase px-1 py-0.5 rounded-xs bg-stone-100 text-stone-500 border border-stone-200 select-none shrink-0">{roleName}</span>
+        {list.map(email => {
+          const displayPart = email.includes('@') ? email.split('@')[0] : email;
+          return (
+            <span key={email} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md truncate max-w-[120px] select-all shrink-0 ${colorClass}`} title={email}>
+              {displayPart}
+            </span>
+          );
+        })}
+      </div>
+    );
+  }, []);
+
+  const renderPerspectiveDropdown = useCallback((node: TreeStats) => {
+    if (!node.students || node.students.length === 0) {
+      return (
+        <span className="text-stone-400 italic text-[11px]">-</span>
+      );
+    }
+
+    const studentsWithIssues = node.students.filter(
+      s => s.status === 'Not Retained' || s.status === 'Extra Scholarship Required' || s.risk === 'Low' || s.risk === 'Medium' || s.remarks || s.discontinueReason
+    );
+
+    const normalStudents = node.students.filter(
+      s => !(s.status === 'Not Retained' || s.status === 'Extra Scholarship Required' || s.risk === 'Low' || s.risk === 'Medium' || s.remarks || s.discontinueReason)
+    );
+
+    return (
+      <div className="min-w-[170px] max-w-[220px] mx-auto" onClick={e => e.stopPropagation()}>
+        <select
+          className="w-full text-[11px] font-sans border border-[#ECE0CE] bg-white rounded-md px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-[#8C764D] text-stone-700 cursor-pointer shadow-xs font-semibold"
+          value={selectedPerspectiveRegNo && node.students.some(s => s.regNo === selectedPerspectiveRegNo) ? selectedPerspectiveRegNo : ""}
+          onChange={(e) => {
+            setSelectedPerspectiveRegNo(e.target.value || null);
+          }}
+        >
+          <option value="">
+            👥 Audit ({node.students.length} Total, {studentsWithIssues.length} Alert)
+          </option>
+          
+          {studentsWithIssues.length > 0 && (
+            <optgroup label="⚠️ Alerts / Retention Issues">
+              {studentsWithIssues.map(s => {
+                const riskLabel = s.risk === 'Low' ? 'High Risk' : s.risk === 'Medium' ? 'Med Risk' : 'Low Risk';
+                return (
+                  <option key={s.regNo} value={s.regNo} className="text-[#A25A38]">
+                    ⚠️ {s.studentName} ({s.regNo}) | {s.status} | {riskLabel}
+                  </option>
+                );
+              })}
+            </optgroup>
+          )}
+          
+          {normalStudents.length > 0 && (
+            <optgroup label="✅ Retained or Healthy">
+              {normalStudents.map(s => (
+                <option key={s.regNo} value={s.regNo}>
+                  {s.studentName} ({s.regNo}) | {s.status}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
+    );
+  }, [selectedPerspectiveRegNo]);
 
   // Handle single cell edit
   const handleCellChange = <K extends keyof StudentScholarshipRow>(
@@ -1641,7 +1862,7 @@ export default function App() {
             </div>
 
             <div className="mt-8 text-center text-[9px] text-stone-400 font-medium leading-relaxed">
-              Kindly connect with Devansh Sharma (**devansh.sharma@pw.live**) or system admin if you require access mapping.
+              Kindly connect with Devansh Sharma (**devansh.sharma@pw.live**), Bipin Yadav (**bipin.yadav@pw.live**), or system admin if you require access mapping.
             </div>
           </div>
         </div>
@@ -3676,216 +3897,395 @@ export default function App() {
 
           {/* "ALL CUTS" - Grid of Breakdown Dimensions */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {/* Cut 1: Region-wise Retention Rates */}
-            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
-              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
+            {/* Unified Interactive Regional Hierarchy Drill-down with Role Permissions */}
+            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5 xl:col-span-2">
+              <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-[#E3DEC3]/60 pb-3.5 mb-4 gap-2">
                 <div className="flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-[#5A7060]" />
-                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Region Cut Breakdown</h3>
+                  <Layers className="w-5 h-5 text-[#8C764D]" />
+                  <div>
+                    <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Interactive Regional Hierarchy Drill-down</h3>
+                    <p className="text-[10px] text-stone-500 font-medium">Click on any Region, Center, or Building to drill down. Live Role mappings are shown next to each tier.</p>
+                  </div>
                 </div>
-                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Region</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-extrabold text-stone-500 uppercase tracking-wider bg-[#F2EDDF] px-2 py-1 rounded-lg">Region &gt; Center &gt; Building &gt; Class</span>
+                </div>
               </div>
-              
-              <div className="overflow-x-auto">
+
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse font-sans">
                   <thead>
                     <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
-                      <th className="py-2.5 pr-4">Region</th>
+                      <th className="py-2.5 pl-3">Organizational Node</th>
+                      <th className="py-2.5">Assigned Role Permissions Mapping</th>
+                      <th className="py-2.5 text-center">Perspectives & Issues Dropdown</th>
                       <th className="py-2.5 text-center">Student Pool</th>
                       <th className="py-2.5 text-center">Retained</th>
                       <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center">Not Retained / Pending</th>
-                      <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
+                      <th className="py-2.5 text-center">Not Retained</th>
+                      <th className="py-2.5 text-center">Pending Remarks</th>
+                      <th className="py-2.5 text-center">PTM Conducted</th>
+                      <th className="py-2.5 text-right pr-4 w-[140px]">Retention Progress</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('region').map(cut => (
-                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
-                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key}</td>
-                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
-                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
-                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center text-stone-500 font-medium">{cut.notRetained} / {cut.pending}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2 justify-end">
-                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
-                            <div className="w-24 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
-                              <div 
-                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
-                                style={{ width: `${cut.retentionRate}%` }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {getCutsForField('region').length === 0 && (
+                  <tbody className="divide-y divide-stone-200/50">
+                    {(Object.entries(hierarchicalCuts) as [string, RegionNode][]).map(([regionName, regionNode]) => {
+                      const isRegionExpanded = !!expandedRegions[regionName];
+                      const regionRetentionRate = regionNode.total > 0 ? Math.round((regionNode.retained / regionNode.total) * 100) : 0;
+                      const regionPtmRate = regionNode.total > 0 ? Math.round((regionNode.ptmDone / regionNode.total) * 100) : 0;
+
+                      return (
+                        <React.Fragment key={regionName}>
+                          {/* Region Row (Level 1) */}
+                          <tr 
+                            className="bg-[#FAF8F5]/80 hover:bg-[#F2EDDF]/80 transition cursor-pointer font-sans"
+                            onClick={() => setExpandedRegions(prev => ({ ...prev, [regionName]: !prev[regionName] }))}
+                          >
+                            <td className="py-3 pl-3 font-serif font-extrabold text-stone-900 flex items-center gap-1.5">
+                              {isRegionExpanded ? (
+                                <ChevronDown className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+                              )}
+                              <MapPin className="w-3.5 h-3.5 text-[#5A7060] shrink-0" />
+                              <span>{regionName}</span>
+                            </td>
+                            <td className="py-3">
+                              <div className="flex flex-col gap-1">
+                                {regionNode.rahs.length > 0 && renderRoleBadges('RAH', regionNode.rahs, 'bg-[#FAF3EE] text-[#A25A38] border border-[#F5E6DD]')}
+                                {regionNode.rfhs.length > 0 && renderRoleBadges('RFH', regionNode.rfhs, 'bg-blue-50 text-blue-700 border border-blue-100')}
+                                {regionNode.rahs.length === 0 && regionNode.rfhs.length === 0 && (
+                                  <span className="text-stone-400 italic text-[11px]">-</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 text-center">
+                              {renderPerspectiveDropdown(regionNode)}
+                            </td>
+                            <td className="py-3 text-center font-bold text-stone-800">{regionNode.total}</td>
+                            <td className="py-3 text-center text-emerald-700 font-bold">{regionNode.retained}</td>
+                            <td className="py-3 text-center text-amber-700 font-bold">{regionNode.extraReq}</td>
+                            <td className="py-3 text-center text-rose-800 font-bold">{regionNode.notRetained}</td>
+                            <td className="py-3 text-center text-stone-500 font-semibold">{regionNode.pending}</td>
+                            <td className="py-3 text-center text-indigo-700 font-bold">{regionPtmRate}%</td>
+                            <td className="py-3 pr-4">
+                              <div className="flex items-center gap-2 justify-end">
+                                <span className="font-mono text-[10px] font-bold text-stone-600">{regionRetentionRate}%</span>
+                                <div className="w-20 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
+                                  <div 
+                                    className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
+                                    style={{ width: `${regionRetentionRate}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Level 2: Centers inside Region */}
+                          {isRegionExpanded && (Object.entries(regionNode.centers) as [string, CenterNode][]).map(([centerName, centerNode]) => {
+                            const centerKey = `${regionName}||${centerName}`;
+                            const isCenterExpanded = !!expandedCenters[centerKey];
+                            const centerRetentionRate = centerNode.total > 0 ? Math.round((centerNode.retained / centerNode.total) * 100) : 0;
+                            const centerPtmRate = centerNode.total > 0 ? Math.round((centerNode.ptmDone / centerNode.total) * 100) : 0;
+
+                            return (
+                              <React.Fragment key={centerKey}>
+                                <tr 
+                                  className="bg-white hover:bg-[#FAF8F5]/80 transition cursor-pointer border-l-2 border-[#5A7060]"
+                                  onClick={() => setExpandedCenters(prev => ({ ...prev, [centerKey]: !prev[centerKey] }))}
+                                >
+                                  <td className="py-2.5 pl-8 font-sans font-bold text-stone-800 flex items-center gap-1.5">
+                                    {isCenterExpanded ? (
+                                      <ChevronDown className="w-3 h-3 text-stone-500 shrink-0" />
+                                    ) : (
+                                      <ChevronRight className="w-3 h-3 text-stone-500 shrink-0" />
+                                    )}
+                                    <GraduationCap className="w-3.5 h-3.5 text-[#8C764D] shrink-0" />
+                                    <span>{centerName}</span>
+                                  </td>
+                                  <td className="py-2.5">
+                                    <div className="flex flex-col gap-1">
+                                      {centerNode.chs.length > 0 && renderRoleBadges('CH', centerNode.chs, 'bg-[#FAF5EC] text-[#8C764D] border border-[#ECE0CE]')}
+                                      {centerNode.rfhs.length > 0 && renderRoleBadges('RFH', centerNode.rfhs, 'bg-blue-50 text-blue-700 border border-blue-100')}
+                                      {centerNode.chs.length === 0 && centerNode.rfhs.length === 0 && (
+                                        <span className="text-stone-400 italic text-[11px]">-</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 text-center">
+                                    {renderPerspectiveDropdown(centerNode)}
+                                  </td>
+                                  <td className="py-2.5 text-center font-semibold text-stone-700">{centerNode.total}</td>
+                                  <td className="py-2.5 text-center text-emerald-700 font-semibold">{centerNode.retained}</td>
+                                  <td className="py-2.5 text-center text-amber-700 font-semibold">{centerNode.extraReq}</td>
+                                  <td className="py-2.5 text-center text-rose-800 font-semibold">{centerNode.notRetained}</td>
+                                  <td className="py-2.5 text-center text-stone-500 font-medium">{centerNode.pending}</td>
+                                  <td className="py-2.5 text-center text-indigo-700 font-semibold">{centerPtmRate}%</td>
+                                  <td className="py-2.5 pr-4">
+                                    <div className="flex items-center gap-2 justify-end">
+                                      <span className="font-mono text-[10px] font-semibold text-stone-600">{centerRetentionRate}%</span>
+                                      <div className="w-16 bg-stone-200 h-1.5 rounded-full overflow-hidden border border-stone-300">
+                                        <div 
+                                          className="bg-[#8C764D] h-full rounded-full transition-all duration-300"
+                                          style={{ width: `${centerRetentionRate}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+
+                                {/* Level 3: Buildings inside Center */}
+                                {isCenterExpanded && (Object.entries(centerNode.buildings) as [string, BuildingNode][]).map(([buildingName, buildingNode]) => {
+                                  const buildingKey = `${centerKey}||${buildingName}`;
+                                  const isBuildingExpanded = !!expandedBuildings[buildingKey];
+                                  const buildingRetentionRate = buildingNode.total > 0 ? Math.round((buildingNode.retained / buildingNode.total) * 100) : 0;
+                                  const buildingPtmRate = buildingNode.total > 0 ? Math.round((buildingNode.ptmDone / buildingNode.total) * 100) : 0;
+
+                                  return (
+                                    <React.Fragment key={buildingKey}>
+                                      <tr 
+                                        className="bg-stone-50/50 hover:bg-stone-100/50 transition cursor-pointer border-l-4 border-[#8C764D]"
+                                        onClick={() => setExpandedBuildings(prev => ({ ...prev, [buildingKey]: !prev[buildingKey] }))}
+                                      >
+                                        <td className="py-2 pl-14 font-sans font-medium text-stone-700 flex items-center gap-1.5">
+                                          {isBuildingExpanded ? (
+                                            <ChevronDown className="w-2.5 h-2.5 text-stone-400 shrink-0" />
+                                          ) : (
+                                            <ChevronRight className="w-2.5 h-2.5 text-stone-400 shrink-0" />
+                                          )}
+                                          <Layers className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+                                          <span>{buildingName}</span>
+                                        </td>
+                                        <td className="py-2">
+                                          <div className="flex flex-col gap-1">
+                                            {buildingNode.fhs.length > 0 && renderRoleBadges('FH', buildingNode.fhs, 'bg-indigo-50 text-indigo-700 border border-indigo-100')}
+                                            {buildingNode.chs.length > 0 && renderRoleBadges('CH', buildingNode.chs, 'bg-[#FAF5EC] text-[#8C764D] border border-[#ECE0CE]')}
+                                            {buildingNode.fhs.length === 0 && buildingNode.chs.length === 0 && (
+                                              <span className="text-stone-400 italic text-[11px]">-</span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="py-2 text-center">
+                                          {renderPerspectiveDropdown(buildingNode)}
+                                        </td>
+                                        <td className="py-2 text-center text-stone-600">{buildingNode.total}</td>
+                                        <td className="py-2 text-center text-emerald-700">{buildingNode.retained}</td>
+                                        <td className="py-2 text-center text-amber-700">{buildingNode.extraReq}</td>
+                                        <td className="py-2 text-center text-rose-800">{buildingNode.notRetained}</td>
+                                        <td className="py-2 text-center text-stone-400">{buildingNode.pending}</td>
+                                        <td className="py-2 text-center text-indigo-700">{buildingPtmRate}%</td>
+                                        <td className="py-2 pr-4">
+                                          <div className="flex items-center gap-2 justify-end">
+                                            <span className="font-mono text-[10px] text-stone-500">{buildingRetentionRate}%</span>
+                                            <div className="w-14 bg-stone-100 h-1 rounded-full overflow-hidden border border-stone-200">
+                                              <div 
+                                                className="bg-stone-500 h-full rounded-full transition-all duration-300"
+                                                style={{ width: `${buildingRetentionRate}%` }}
+                                              />
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Level 4: Classes inside Building */}
+                                      {isBuildingExpanded && (Object.entries(buildingNode.classes) as [string, ClassNode][]).map(([className, classNode]) => {
+                                        const classRetentionRate = classNode.total > 0 ? Math.round((classNode.retained / classNode.total) * 100) : 0;
+                                        const classPtmRate = classNode.total > 0 ? Math.round((classNode.ptmDone / classNode.total) * 100) : 0;
+
+                                        return (
+                                          <tr key={className} className="bg-stone-100/20 hover:bg-stone-100/40 transition">
+                                            <td className="py-1.5 pl-20 font-sans text-stone-600 flex items-center gap-1.5">
+                                              <span className="w-1 h-1 rounded-full bg-stone-400 shrink-0 ml-1"></span>
+                                              <span>{className}</span>
+                                            </td>
+                                            <td className="py-1.5">
+                                              <div className="flex flex-col gap-1">
+                                                {classNode.mentors.length > 0 && renderRoleBadges('MENTOR', classNode.mentors, 'bg-emerald-50 text-emerald-700 border border-emerald-100')}
+                                                {classNode.counselors.length > 0 && renderRoleBadges('COUNSELOR', classNode.counselors, 'bg-teal-50 text-teal-700 border border-teal-100')}
+                                                {classNode.mentors.length === 0 && classNode.counselors.length === 0 && (
+                                                  <span className="text-stone-400 italic text-[11px]">-</span>
+                                                )}
+                                              </div>
+                                            </td>
+                                            <td className="py-1.5 text-center">
+                                              {renderPerspectiveDropdown(classNode)}
+                                            </td>
+                                            <td className="py-1.5 text-center text-stone-500">{classNode.total}</td>
+                                            <td className="py-1.5 text-center text-emerald-600">{classNode.retained}</td>
+                                            <td className="py-1.5 text-center text-amber-600">{classNode.extraReq}</td>
+                                            <td className="py-1.5 text-center text-rose-700">{classNode.notRetained}</td>
+                                            <td className="py-1.5 text-center text-stone-400">{classNode.pending}</td>
+                                            <td className="py-1.5 text-center text-indigo-600">{classPtmRate}%</td>
+                                            <td className="py-1.5 pr-4 text-right">
+                                              <span className="font-mono text-[10px] text-stone-500">{classRetentionRate}%</span>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                    {Object.keys(hierarchicalCuts).length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No region cuts available for these filter selections</td>
+                        <td colSpan={10} className="py-10 text-center text-stone-400 font-medium italic">No data matched the active filter criteria</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </div>
 
-            {/* Cut 2: Center-wise Retention Rates */}
-            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
-              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
-                <div className="flex items-center gap-2">
-                  <GraduationCap className="w-5 h-5 text-[#5A7060]" />
-                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Center Cut Breakdown</h3>
-                </div>
-                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Center</span>
-              </div>
+              {/* Collapsible Interactive Student Perspective Details Card */}
+              <AnimatePresence>
+                {selectedPerspectiveStudent && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 15 }}
+                    className="mt-6 p-5 bg-[#FAF8F5] rounded-2xl border-2 border-[#8C764D]/30 shadow-xs text-stone-800"
+                  >
+                    <div className="flex items-center justify-between border-b border-[#E3DEC3] pb-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <User className="w-5 h-5 text-[#8C764D]" />
+                        <div>
+                          <h4 className="font-serif font-bold text-[#2B3A2C] text-sm">
+                            Auditing Perspective: {selectedPerspectiveStudent.studentName}
+                          </h4>
+                          <p className="text-[10px] text-stone-500 font-medium">
+                            Reg No: {selectedPerspectiveStudent.regNo} | Class: {selectedPerspectiveStudent.class} | Building: {selectedPerspectiveStudent.building} | Center: {selectedPerspectiveStudent.center}
+                          </p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedPerspectiveRegNo(null)}
+                        className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-700 transition cursor-pointer"
+                        title="Clear Selection"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
 
-              <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
-                <table className="w-full text-left text-xs border-collapse font-sans">
-                  <thead>
-                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
-                      <th className="py-2.5 pr-4">Center</th>
-                      <th className="py-2.5 text-center">Student Pool</th>
-                      <th className="py-2.5 text-center">Retained</th>
-                      <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center">Not Retained / Pending</th>
-                      <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('center').map(cut => (
-                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
-                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key}</td>
-                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
-                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
-                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center text-stone-500 font-medium">{cut.notRetained} / {cut.pending}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2 justify-end">
-                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
-                            <div className="w-24 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
-                              <div 
-                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
-                                style={{ width: `${cut.retentionRate}%` }}
-                              />
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Risk Card */}
+                      <div className="bg-white p-3 rounded-xl border border-[#E3DEC3] shadow-xs">
+                        <div className="text-[9px] font-extrabold uppercase tracking-wide text-stone-500 mb-1">
+                          Retention Probability (Risk)
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          {selectedPerspectiveStudent.retentionProbability === 'Low' ? (
+                            <span className="flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">
+                              <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                              Low Prob (High Risk)
+                            </span>
+                          ) : selectedPerspectiveStudent.retentionProbability === 'Medium' ? (
+                            <span className="flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                              Med Prob (Med Risk)
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              High Prob (Low Risk)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Scholarship Stats */}
+                      <div className="bg-white p-3 rounded-xl border border-[#E3DEC3] shadow-xs">
+                        <div className="text-[9px] font-extrabold uppercase tracking-wide text-stone-500 mb-1">
+                          Scholarship Split
+                        </div>
+                        <div className="text-[11px] font-semibold text-stone-800 flex flex-col gap-0.5">
+                          <div><span className="text-stone-400">Current:</span> {selectedPerspectiveStudent.scholarship || '0%'}</div>
+                          <div><span className="text-stone-400">Proposed:</span> {selectedPerspectiveStudent.proposedScholarship || 'None'}</div>
+                          {selectedPerspectiveStudent.proposedScholarship && (
+                            <div className="text-[9px] text-amber-700 font-extrabold bg-amber-50/50 px-1.5 py-0.5 rounded-sm inline-block mt-0.5 border border-amber-100/30">
+                              Requested Extra Support
                             </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Status & PTM */}
+                      <div className="bg-white p-3 rounded-xl border border-[#E3DEC3] shadow-xs">
+                        <div className="text-[9px] font-extrabold uppercase tracking-wide text-stone-500 mb-1">
+                          Final Decision & PTM
+                        </div>
+                        <div className="text-[11px] font-semibold text-stone-800 flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1">
+                            <span className="text-stone-400">Status:</span>
+                            <span className={`px-1.5 py-0.5 rounded-md font-extrabold text-[9px] ${
+                              selectedPerspectiveStudent.finalRetentionStatus === 'Not Retained' ? 'bg-rose-50 text-rose-800 border border-rose-100' :
+                              selectedPerspectiveStudent.finalRetentionStatus === 'Ready to get retained' || selectedPerspectiveStudent.finalRetentionStatus === 'Retained' ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' :
+                              selectedPerspectiveStudent.finalRetentionStatus === 'Extra Scholarship Required' ? 'bg-amber-50 text-amber-800 border border-amber-100' :
+                              'bg-stone-50 text-stone-600 border border-stone-100'
+                            }`}>
+                              {selectedPerspectiveStudent.finalRetentionStatus || 'Pending'}
+                            </span>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {getCutsForField('center').length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No center cuts available for these filter selections</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                          <div>
+                            <span className="text-stone-400">PTM Status:</span> {selectedPerspectiveStudent.ptmStatus || 'Pending'}
+                          </div>
+                        </div>
+                      </div>
 
-            {/* Cut 3: Building-wise Retention Rates */}
-            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
-              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-[#5A7060]" />
-                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Building Cut Breakdown</h3>
-                </div>
-                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Building</span>
-              </div>
+                      {/* Contact & Owner */}
+                      <div className="bg-white p-3 rounded-xl border border-[#E3DEC3] shadow-xs">
+                        <div className="text-[9px] font-extrabold uppercase tracking-wide text-stone-500 mb-1">
+                          Owner & Counselor
+                        </div>
+                        <div className="text-[11px] font-semibold text-stone-800 flex flex-col gap-0.5">
+                          <div><span className="text-stone-400">Mentor:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{selectedPerspectiveStudent.mentor || 'Unassigned'}</span></div>
+                          <div><span className="text-stone-400">Counselor:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{selectedPerspectiveStudent.counselorName || 'Unassigned'}</span></div>
+                        </div>
+                      </div>
+                    </div>
 
-              <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
-                <table className="w-full text-left text-xs border-collapse font-sans">
-                  <thead>
-                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
-                      <th className="py-2.5 pr-4">Building Structure</th>
-                      <th className="py-2.5 text-center">Student Pool</th>
-                      <th className="py-2.5 text-center">Retained</th>
-                      <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center">Not Retained / Pending</th>
-                      <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('building').map(cut => (
-                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
-                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key}</td>
-                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
-                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
-                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center text-stone-500 font-medium">{cut.notRetained} / {cut.pending}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2 justify-end">
-                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
-                            <div className="w-24 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
-                              <div 
-                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
-                                style={{ width: `${cut.retentionRate}%` }}
-                              />
+                    {/* Remarks & Reason block */}
+                    {(selectedPerspectiveStudent.parentRemarks || selectedPerspectiveStudent.discontinueReason) && (
+                      <div className="mt-3.5 bg-white p-4 rounded-xl border border-[#E3DEC3] shadow-xs">
+                        <h5 className="text-[10px] font-extrabold uppercase tracking-wide text-stone-500 mb-2 flex items-center gap-1">
+                          <MessageSquare className="w-3.5 h-3.5 text-stone-400" />
+                          Critical Remarks & Discontinuation Reason
+                        </h5>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
+                          {selectedPerspectiveStudent.discontinueReason && (
+                            <div className="p-2.5 rounded-lg bg-rose-50/50 border border-rose-100/60">
+                              <span className="font-bold text-rose-900 block mb-0.5">Discontinue Reason</span>
+                              <p className="text-stone-700 font-medium italic">"{selectedPerspectiveStudent.discontinueReason}"</p>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {getCutsForField('building').length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No building cuts available for these filter selections</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Cut 4: Class/Grade-wise Retention Rates */}
-            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
-              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
-                <div className="flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-[#5A7060]" />
-                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Class Grade Cut Breakdown</h3>
-                </div>
-                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Class</span>
-              </div>
-
-              <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
-                <table className="w-full text-left text-xs border-collapse font-sans">
-                  <thead>
-                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
-                      <th className="py-2.5 pr-4">Class</th>
-                      <th className="py-2.5 text-center">Student Pool</th>
-                      <th className="py-2.5 text-center">Retained</th>
-                      <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center">Not Retained / Pending</th>
-                      <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('class').map(cut => (
-                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
-                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key}</td>
-                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
-                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
-                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center text-stone-500 font-medium">{cut.notRetained} / {cut.pending}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2 justify-end">
-                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
-                            <div className="w-24 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
-                              <div 
-                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
-                                style={{ width: `${cut.retentionRate}%` }}
-                              />
+                          )}
+                          {selectedPerspectiveStudent.parentRemarks && (
+                            <div className="p-2.5 rounded-lg bg-amber-50/50 border border-amber-100/60">
+                              <span className="font-bold text-amber-900 block mb-0.5">Parent Feedback / Remarks</span>
+                              <p className="text-stone-700 font-medium italic">"{selectedPerspectiveStudent.parentRemarks}"</p>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {getCutsForField('class').length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No class cuts available for these filter selections</td>
-                      </tr>
+                          )}
+                        </div>
+                      </div>
                     )}
-                  </tbody>
-                </table>
-              </div>
+
+                    {/* Direct Edit Shortcuts */}
+                    <div className="mt-4 flex flex-wrap gap-2 justify-end">
+                      <button 
+                        onClick={() => {
+                          setSelectedStudentId(selectedPerspectiveStudent.id);
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#5A7060] text-white hover:bg-[#4E6152] transition shadow-xs cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Open Complete Student Profile
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Cut 5: Mentor-wise Retention Performance */}
@@ -3938,6 +4338,171 @@ export default function App() {
                     {getCutsForField('mentor').length === 0 && (
                       <tr>
                         <td colSpan={8} className="py-6 text-center text-stone-400 font-medium italic">No mentor cuts available for these filter selections</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Cut 6: Counselor Performance Cut Breakdown */}
+            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5 xl:col-span-2">
+              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
+                <div className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-[#8C764D]" />
+                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Counselor Performance Cut Breakdown</h3>
+                </div>
+                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Counselor</span>
+              </div>
+
+              <div className="overflow-x-auto max-h-[350px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse font-sans">
+                  <thead>
+                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
+                      <th className="py-2.5 pr-4">Counselor Name / Email</th>
+                      <th className="py-2.5 text-center">Student Pool</th>
+                      <th className="py-2.5 text-center">Retained</th>
+                      <th className="py-2.5 text-center">Extra Sch. Req</th>
+                      <th className="py-2.5 text-center">Not Retained</th>
+                      <th className="py-2.5 text-center">Pending Remarks</th>
+                      <th className="py-2.5 text-center">PTM Conducted %</th>
+                      <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E3DEC3]/40">
+                    {getCutsForField('counselorName').map(cut => (
+                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
+                        <td className="py-3 font-serif font-bold text-stone-800 pr-4 truncate max-w-[200px]" title={cut.key}>{cut.key}</td>
+                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
+                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
+                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
+                        <td className="py-3 text-center text-rose-800 font-semibold">{cut.notRetained}</td>
+                        <td className="py-3 text-center text-stone-500 font-semibold">{cut.pending}</td>
+                        <td className="py-3 text-center text-indigo-700 font-semibold">{cut.ptmRate}%</td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-2 justify-end">
+                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
+                            <div className="w-24 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
+                              <div 
+                                className="bg-[#8C764D] h-full rounded-full transition-all duration-300"
+                                style={{ width: `${cut.retentionRate}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {getCutsForField('counselorName').length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="py-6 text-center text-stone-400 font-medium italic">No counselor cuts available for these filter selections</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Cut 7: Scholarship Tier Retention & Extra Scholarship Demand Status */}
+            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
+              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
+                <div className="flex items-center gap-2">
+                  <Percent className="w-5 h-5 text-[#5A7060]" />
+                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">Scholarship Cohort Retention Analysis</h3>
+                </div>
+                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Scholarship Tier</span>
+              </div>
+
+              <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse font-sans">
+                  <thead>
+                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
+                      <th className="py-2.5 pr-4">Base Scholarship Tier</th>
+                      <th className="py-2.5 text-center">Cohort Size</th>
+                      <th className="py-2.5 text-center">Retained</th>
+                      <th className="py-2.5 text-center">Extra Demand</th>
+                      <th className="py-2.5 text-center">Not Retained / Pending</th>
+                      <th className="py-2.5 text-right w-[140px]">Retention Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E3DEC3]/40">
+                    {getCutsForField('scholarship').map(cut => (
+                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
+                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key || 'No Scholarship'}</td>
+                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
+                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
+                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
+                        <td className="py-3 text-center text-stone-500 font-medium">{cut.notRetained} / {cut.pending}</td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-2 justify-end">
+                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
+                            <div className="w-20 bg-stone-200 h-1.5 rounded-full overflow-hidden border border-stone-300">
+                              <div 
+                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
+                                style={{ width: `${cut.retentionRate}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {getCutsForField('scholarship').length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No scholarship cohort cuts available for these filter selections</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Cut 8: PTM Coordination Status & Progress Summary */}
+            <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
+              <div className="flex justify-between items-center border-b border-[#E3DEC3]/60 pb-3.5 mb-4">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-[#5A7060]" />
+                  <h3 className="font-serif font-bold text-[#2B3A2C] text-sm">PTM Schedule & Retention Impact</h3>
+                </div>
+                <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by PTM Status</span>
+              </div>
+
+              <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse font-sans">
+                  <thead>
+                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
+                      <th className="py-2.5 pr-4">PTM Status</th>
+                      <th className="py-2.5 text-center">Student Pool</th>
+                      <th className="py-2.5 text-center">Retained</th>
+                      <th className="py-2.5 text-center">Extra Demand</th>
+                      <th className="py-2.5 text-center">Not Retained</th>
+                      <th className="py-2.5 text-right w-[140px]">Retention Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E3DEC3]/40">
+                    {getCutsForField('ptmStatus').map(cut => (
+                      <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
+                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">
+                          {cut.key === 'Unassigned' ? 'Not Scheduled / Unknown' : cut.key}
+                        </td>
+                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
+                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
+                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
+                        <td className="py-3 text-center text-rose-800 font-semibold">{cut.notRetained}</td>
+                        <td className="py-3">
+                          <div className="flex items-center gap-2 justify-end">
+                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
+                            <div className="w-20 bg-stone-200 h-1.5 rounded-full overflow-hidden border border-stone-300">
+                              <div 
+                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
+                                style={{ width: `${cut.retentionRate}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {getCutsForField('ptmStatus').length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No PTM status cuts available for these filter selections</td>
                       </tr>
                     )}
                   </tbody>
@@ -4830,7 +5395,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Exclusive Admin Sandbox & Simulation Panel */}
-      {activeEmail.toLowerCase().trim() === 'devansh.sharma@pw.live' && (
+      {(activeEmail.toLowerCase().trim() === 'devansh.sharma@pw.live' || activeEmail.toLowerCase().trim() === 'bipin.yadav@pw.live') && (
         <div className="mx-6 mb-6">
           <div className="bg-[#FAF0E4] border-2 border-[#E3DEC3] rounded-3xl shadow-md overflow-hidden transition-all duration-300">
             {/* Panel Header */}
