@@ -1189,6 +1189,87 @@ export default function App() {
     }).sort((a, b) => b.total - a.total); // Sort by total student count descending
   }, [filteredSummaryData, userRolesList]);
 
+  // Memoized Cuts and Totals for Summary View Tables
+  const mentorCuts = useMemo(() => getCutsForField('mentor'), [getCutsForField]);
+  const mentorTotals = useMemo(() => {
+    const totalPool = mentorCuts.reduce((sum, c) => sum + c.total, 0);
+    const totalRetained = mentorCuts.reduce((sum, c) => sum + c.retained, 0);
+    const totalExtraReq = mentorCuts.reduce((sum, c) => sum + c.extraReq, 0);
+    const totalPtmDone = mentorCuts.reduce((sum, c) => sum + c.ptmDone, 0);
+    const totalProbLow = mentorCuts.reduce((sum, c) => sum + c.probLow, 0);
+    const totalProbMed = mentorCuts.reduce((sum, c) => sum + c.probMed, 0);
+    const totalProbHigh = mentorCuts.reduce((sum, c) => sum + c.probHigh, 0);
+    const totalProbUnrated = mentorCuts.reduce((sum, c) => sum + c.probUnrated, 0);
+    const totalPtmRate = totalPool > 0 ? Math.round((totalPtmDone / totalPool) * 100) : 0;
+    return {
+      totalPool,
+      totalRetained,
+      totalExtraReq,
+      totalPtmDone,
+      totalPtmRate,
+      totalProbLow,
+      totalProbMed,
+      totalProbHigh,
+      totalProbUnrated
+    };
+  }, [mentorCuts]);
+
+  const counselorCuts = useMemo(() => getCutsForField('counselorName'), [getCutsForField]);
+  const counselorTotals = useMemo(() => {
+    const totalPool = counselorCuts.reduce((sum, c) => sum + c.total, 0);
+    const totalRetained = counselorCuts.reduce((sum, c) => sum + c.retained, 0);
+    const totalExtraReq = counselorCuts.reduce((sum, c) => sum + c.extraReq, 0);
+    const totalNotRetained = counselorCuts.reduce((sum, c) => sum + c.notRetained, 0);
+    const totalPending = counselorCuts.reduce((sum, c) => sum + c.pending, 0);
+    const totalPtmDone = counselorCuts.reduce((sum, c) => sum + c.ptmDone, 0);
+    const totalPtmRate = totalPool > 0 ? Math.round((totalPtmDone / totalPool) * 100) : 0;
+    const totalRetentionRate = totalPool > 0 ? Math.round((totalRetained / totalPool) * 100) : 0;
+    return {
+      totalPool,
+      totalRetained,
+      totalExtraReq,
+      totalNotRetained,
+      totalPending,
+      totalPtmDone,
+      totalPtmRate,
+      totalRetentionRate
+    };
+  }, [counselorCuts]);
+
+  const scholarshipCuts = useMemo(() => getCutsForField('scholarship'), [getCutsForField]);
+  const scholarshipTotals = useMemo(() => {
+    const totalPool = scholarshipCuts.reduce((sum, c) => sum + c.total, 0);
+    const totalRetained = scholarshipCuts.reduce((sum, c) => sum + c.retained, 0);
+    const totalExtraReq = scholarshipCuts.reduce((sum, c) => sum + c.extraReq, 0);
+    const totalNotRetained = scholarshipCuts.reduce((sum, c) => sum + c.notRetained, 0);
+    const totalPending = scholarshipCuts.reduce((sum, c) => sum + c.pending, 0);
+    const totalRetentionRate = totalPool > 0 ? Math.round((totalRetained / totalPool) * 100) : 0;
+    return {
+      totalPool,
+      totalRetained,
+      totalExtraReq,
+      totalNotRetained,
+      totalPending,
+      totalRetentionRate
+    };
+  }, [scholarshipCuts]);
+
+  const ptmCuts = useMemo(() => getCutsForField('ptmStatus'), [getCutsForField]);
+  const ptmTotals = useMemo(() => {
+    const totalPool = ptmCuts.reduce((sum, c) => sum + c.total, 0);
+    const totalRetained = ptmCuts.reduce((sum, c) => sum + c.retained, 0);
+    const totalExtraReq = ptmCuts.reduce((sum, c) => sum + c.extraReq, 0);
+    const totalNotRetained = ptmCuts.reduce((sum, c) => sum + c.notRetained, 0);
+    const totalRetentionRate = totalPool > 0 ? Math.round((totalRetained / totalPool) * 100) : 0;
+    return {
+      totalPool,
+      totalRetained,
+      totalExtraReq,
+      totalNotRetained,
+      totalRetentionRate
+    };
+  }, [ptmCuts]);
+
   // Hierarchical Drill Down structure: Region -> Center -> Building -> Class
   const hierarchicalCuts = useMemo((): { [name: string]: RegionNode } => {
     const tree: { [name: string]: RegionNode } = {};
@@ -1270,6 +1351,28 @@ export default function App() {
 
     return tree;
   }, [filteredSummaryData, userRolesList]);
+
+  const hierarchicalTotals = useMemo(() => {
+    const regions = Object.values(hierarchicalCuts) as RegionNode[];
+    const totalPool = regions.reduce((sum, r) => sum + r.total, 0);
+    const totalRetained = regions.reduce((sum, r) => sum + r.retained, 0);
+    const totalExtraReq = regions.reduce((sum, r) => sum + r.extraReq, 0);
+    const totalNotRetained = regions.reduce((sum, r) => sum + r.notRetained, 0);
+    const totalPending = regions.reduce((sum, r) => sum + r.pending, 0);
+    const totalPtmDone = regions.reduce((sum, r) => sum + r.ptmDone, 0);
+    const totalPtmRate = totalPool > 0 ? Math.round((totalPtmDone / totalPool) * 100) : 0;
+    const totalRetentionRate = totalPool > 0 ? Math.round((totalRetained / totalPool) * 100) : 0;
+    return {
+      totalPool,
+      totalRetained,
+      totalExtraReq,
+      totalNotRetained,
+      totalPending,
+      totalPtmDone,
+      totalPtmRate,
+      totalRetentionRate
+    };
+  }, [hierarchicalCuts]);
 
   // Helper to render role mapping badges cleanly in the summary table
   const renderRoleBadges = useCallback((roleName: string, list: string[], colorClass: string) => {
@@ -4646,6 +4749,24 @@ export default function App() {
                       </tr>
                     )}
                   </tbody>
+                  {Object.keys(hierarchicalCuts).length > 0 && (
+                    <tfoot className="bg-[#FAF3EC] font-bold border-t-2 border-[#E3DEC3] text-stone-800 sticky bottom-0 z-10">
+                      <tr>
+                        <td className="py-2.5 pl-3 border-r border-[#E3DEC3]/60 font-serif font-extrabold">TOTAL / OVERALL</td>
+                        <td className="py-2.5 border-r border-[#E3DEC3]/60 text-stone-400 font-normal italic">-</td>
+                        <td className="py-2.5 text-center border-r border-[#E3DEC3]/60 text-stone-400 font-normal italic">-</td>
+                        <td className="py-2.5 text-center font-extrabold text-stone-900">{hierarchicalTotals.totalPool}</td>
+                        <td className="py-2.5 text-center text-emerald-800 font-extrabold">{hierarchicalTotals.totalRetained}</td>
+                        <td className="py-2.5 text-center text-amber-800 font-extrabold">{hierarchicalTotals.totalExtraReq}</td>
+                        <td className="py-2.5 text-center text-rose-800 font-extrabold">{hierarchicalTotals.totalNotRetained}</td>
+                        <td className="py-2.5 text-center text-stone-600 font-extrabold">{hierarchicalTotals.totalPending}</td>
+                        <td className="py-2.5 text-center text-indigo-900 font-extrabold">{hierarchicalTotals.totalPtmDone} <span className="text-[10px] text-stone-500 font-normal">({hierarchicalTotals.totalPtmRate}%)</span></td>
+                        <td className="py-2.5 pr-4 text-right">
+                          <span className="font-mono text-[10px] font-extrabold text-stone-900">{hierarchicalTotals.totalRetentionRate}%</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
 
@@ -4815,6 +4936,7 @@ export default function App() {
                       <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom">Student Pool</th>
                       <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom">Retained</th>
                       <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom">Extra Scholarship Required</th>
+                      <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom text-indigo-900 bg-indigo-50/40">1 Discussion Conducted</th>
                       <th colSpan={4} className="py-1 text-center bg-[#FAF3EC]/80 border-b border-[#E3DEC3] text-[#5A7060]">Probability of Retention</th>
                     </tr>
                     <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
@@ -4825,12 +4947,15 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('mentor').map(cut => (
+                    {mentorCuts.map(cut => (
                       <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
                         <td className="py-3 font-serif font-bold text-stone-800 pr-4 border-r border-[#E3DEC3]/40">{cut.key}</td>
                         <td className="py-3 text-center font-bold text-stone-700 px-3 border-r border-[#E3DEC3]/40">{cut.total}</td>
                         <td className="py-3 text-center text-emerald-700 font-bold px-3 border-r border-[#E3DEC3]/40">{cut.retained}</td>
                         <td className="py-3 text-center text-amber-700 font-bold px-3 border-r border-[#E3DEC3]/40">{cut.extraReq}</td>
+                        <td className="py-3 text-center text-indigo-700 font-bold px-3 border-r border-[#E3DEC3]/40">
+                          {cut.ptmDone} <span className="text-[10px] text-stone-400 font-normal">({cut.ptmRate}%)</span>
+                        </td>
                         <td className="py-3 text-center px-3 border-r border-[#E3DEC3]/40">
                           <span className={`inline-block font-bold px-2 py-0.5 rounded-full text-xs ${cut.probLow > 0 ? 'bg-rose-100 text-rose-800' : 'text-stone-400'}`}>
                             {cut.probLow}
@@ -4853,12 +4978,29 @@ export default function App() {
                         </td>
                       </tr>
                     ))}
-                    {getCutsForField('mentor').length === 0 && (
+                    {mentorCuts.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="py-6 text-center text-stone-400 font-medium italic">No mentor cuts available for these filter selections</td>
+                        <td colSpan={9} className="py-6 text-center text-stone-400 font-medium italic">No mentor cuts available for these filter selections</td>
                       </tr>
                     )}
                   </tbody>
+                  {mentorCuts.length > 0 && (
+                    <tfoot className="bg-[#FAF3EC] font-bold border-t-2 border-[#E3DEC3] text-stone-800 sticky bottom-0 z-10">
+                      <tr>
+                        <td className="py-3 font-serif font-extrabold pr-4 border-r border-[#E3DEC3]">TOTAL / OVERALL</td>
+                        <td className="py-3 text-center font-extrabold text-stone-900 px-3 border-r border-[#E3DEC3]">{mentorTotals.totalPool}</td>
+                        <td className="py-3 text-center text-emerald-800 font-extrabold px-3 border-r border-[#E3DEC3]">{mentorTotals.totalRetained}</td>
+                        <td className="py-3 text-center text-amber-800 font-extrabold px-3 border-r border-[#E3DEC3]">{mentorTotals.totalExtraReq}</td>
+                        <td className="py-3 text-center text-indigo-900 font-extrabold px-3 border-r border-[#E3DEC3]">
+                          {mentorTotals.totalPtmDone} <span className="text-[10px] text-stone-500 font-normal">({mentorTotals.totalPtmRate}%)</span>
+                        </td>
+                        <td className="py-3 text-center text-rose-800 px-3 border-r border-[#E3DEC3]">{mentorTotals.totalProbLow}</td>
+                        <td className="py-3 text-center text-amber-800 px-3 border-r border-[#E3DEC3]">{mentorTotals.totalProbMed}</td>
+                        <td className="py-3 text-center text-emerald-800 px-3 border-r border-[#E3DEC3]">{mentorTotals.totalProbHigh}</td>
+                        <td className="py-3 text-center text-stone-700 px-3">{mentorTotals.totalProbUnrated}</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>
@@ -4881,49 +5023,18 @@ export default function App() {
                       <th className="py-2.5 text-center">Student Pool</th>
                       <th className="py-2.5 text-center">Retained</th>
                       <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center min-w-[210px]">Not Retained (Risk & Reasons)</th>
                       <th className="py-2.5 text-center">Pending Remarks</th>
-                      <th className="py-2.5 text-center">PTM Conducted %</th>
                       <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('counselorName').map(cut => (
+                    {counselorCuts.map(cut => (
                       <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
                         <td className="py-3 font-serif font-bold text-stone-800 pr-4 truncate max-w-[200px]" title={cut.key}>{cut.key}</td>
                         <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
                         <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
                         <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center px-2">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="text-rose-800 font-bold text-xs">{cut.notRetained}</span>
-                            
-                            {(cut.notRetainedLow > 0 || cut.notRetainedMed > 0 || cut.notRetainedHigh > 0) && (
-                              <div className="flex items-center justify-center gap-1 flex-wrap">
-                                <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200/80" title="Low Retention Probability (High Risk)">
-                                  Low: {cut.notRetainedLow}
-                                </span>
-                                <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200/80" title="Medium Retention Probability">
-                                  Med: {cut.notRetainedMed}
-                                </span>
-                                <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200/80" title="High Retention Probability">
-                                  High: {cut.notRetainedHigh}
-                                </span>
-                              </div>
-                            )}
-
-                            {cut.reasonsCount > 0 && (
-                              <div 
-                                className="text-[9.5px] font-medium text-stone-600 bg-stone-100/90 px-2 py-0.5 rounded-md border border-stone-200/80 max-w-[210px] truncate cursor-help"
-                                title={`Dropout Reasons (${cut.reasonsCount}): ${cut.reasonsSummary}`}
-                              >
-                                <span className="font-extrabold text-stone-700">Reasons ({cut.reasonsCount}):</span> {cut.reasonsSummary}
-                              </div>
-                            )}
-                          </div>
-                        </td>
                         <td className="py-3 text-center text-stone-500 font-semibold">{cut.pending}</td>
-                        <td className="py-3 text-center text-indigo-700 font-semibold">{cut.ptmRate}%</td>
                         <td className="py-3">
                           <div className="flex items-center gap-2 justify-end">
                             <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
@@ -4937,12 +5048,26 @@ export default function App() {
                         </td>
                       </tr>
                     ))}
-                    {getCutsForField('counselorName').length === 0 && (
+                    {counselorCuts.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="py-6 text-center text-stone-400 font-medium italic">No counselor cuts available for these filter selections</td>
+                        <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No counselor cuts available for these filter selections</td>
                       </tr>
                     )}
                   </tbody>
+                  {counselorCuts.length > 0 && (
+                    <tfoot className="bg-[#FAF3EC] font-bold border-t-2 border-[#E3DEC3] text-stone-800 sticky bottom-0 z-10">
+                      <tr>
+                        <td className="py-3 pr-4 font-serif font-extrabold">TOTAL / OVERALL</td>
+                        <td className="py-3 text-center font-extrabold text-stone-900">{counselorTotals.totalPool}</td>
+                        <td className="py-3 text-center text-emerald-800 font-extrabold">{counselorTotals.totalRetained}</td>
+                        <td className="py-3 text-center text-amber-800 font-extrabold">{counselorTotals.totalExtraReq}</td>
+                        <td className="py-3 text-center text-stone-600 font-extrabold">{counselorTotals.totalPending}</td>
+                        <td className="py-3 text-right">
+                          <span className="font-mono text-[10px] font-extrabold text-stone-900">{counselorTotals.totalRetentionRate}%</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>
@@ -4970,7 +5095,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('scholarship').map(cut => (
+                    {scholarshipCuts.map(cut => (
                       <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
                         <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key || 'No Scholarship'}</td>
                         <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
@@ -4990,12 +5115,26 @@ export default function App() {
                         </td>
                       </tr>
                     ))}
-                    {getCutsForField('scholarship').length === 0 && (
+                    {scholarshipCuts.length === 0 && (
                       <tr>
                         <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No scholarship cohort cuts available for these filter selections</td>
                       </tr>
                     )}
                   </tbody>
+                  {scholarshipCuts.length > 0 && (
+                    <tfoot className="bg-[#FAF3EC] font-bold border-t-2 border-[#E3DEC3] text-stone-800 sticky bottom-0 z-10">
+                      <tr>
+                        <td className="py-3 pr-4 font-serif font-extrabold">TOTAL / OVERALL</td>
+                        <td className="py-3 text-center font-extrabold text-stone-900">{scholarshipTotals.totalPool}</td>
+                        <td className="py-3 text-center text-emerald-800 font-extrabold">{scholarshipTotals.totalRetained}</td>
+                        <td className="py-3 text-center text-amber-800 font-extrabold">{scholarshipTotals.totalExtraReq}</td>
+                        <td className="py-3 text-center text-stone-600 font-extrabold">{scholarshipTotals.totalNotRetained} / {scholarshipTotals.totalPending}</td>
+                        <td className="py-3 text-right">
+                          <span className="font-mono text-[10px] font-extrabold text-stone-900">{scholarshipTotals.totalRetentionRate}%</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>
@@ -5023,7 +5162,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E3DEC3]/40">
-                    {getCutsForField('ptmStatus').map(cut => (
+                    {ptmCuts.map(cut => (
                       <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
                         <td className="py-3 font-serif font-bold text-stone-800 pr-4">
                           {cut.key === 'Unassigned' ? 'Not Scheduled / Unknown' : cut.key}
@@ -5045,12 +5184,26 @@ export default function App() {
                         </td>
                       </tr>
                     ))}
-                    {getCutsForField('ptmStatus').length === 0 && (
+                    {ptmCuts.length === 0 && (
                       <tr>
                         <td colSpan={6} className="py-6 text-center text-stone-400 font-medium italic">No PTM status cuts available for these filter selections</td>
                       </tr>
                     )}
                   </tbody>
+                  {ptmCuts.length > 0 && (
+                    <tfoot className="bg-[#FAF3EC] font-bold border-t-2 border-[#E3DEC3] text-stone-800 sticky bottom-0 z-10">
+                      <tr>
+                        <td className="py-3 pr-4 font-serif font-extrabold">TOTAL / OVERALL</td>
+                        <td className="py-3 text-center font-extrabold text-stone-900">{ptmTotals.totalPool}</td>
+                        <td className="py-3 text-center text-emerald-800 font-extrabold">{ptmTotals.totalRetained}</td>
+                        <td className="py-3 text-center text-amber-800 font-extrabold">{ptmTotals.totalExtraReq}</td>
+                        <td className="py-3 text-center text-rose-800 font-extrabold">{ptmTotals.totalNotRetained}</td>
+                        <td className="py-3 text-right">
+                          <span className="font-mono text-[10px] font-extrabold text-stone-900">{ptmTotals.totalRetentionRate}%</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>
@@ -5974,6 +6127,52 @@ export default function App() {
             availableMentors={availableMentors}
             triggerBanner={triggerBanner}
             onRolesUpdated={loadUserRoles}
+            onReplaceStudentEmails={async (oldEmail: string, newEmail: string) => {
+              const normalizedOld = oldEmail.trim().toLowerCase();
+              const normalizedNew = newEmail.trim().toLowerCase();
+              if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) return 0;
+
+              let count = 0;
+              const updatedStudents = data.map(st => {
+                let changed = false;
+                let newMentor = st.mentor;
+                let newMentorMail = st.mentorMailid;
+                let newCounselor = st.counselorName;
+
+                if (st.mentorMailid?.trim().toLowerCase() === normalizedOld) {
+                  newMentorMail = normalizedNew;
+                  changed = true;
+                }
+                if (st.mentor?.trim().toLowerCase() === normalizedOld) {
+                  newMentor = normalizedNew;
+                  changed = true;
+                }
+                if (st.counselorName?.trim().toLowerCase() === normalizedOld) {
+                  newCounselor = normalizedNew;
+                  changed = true;
+                }
+
+                if (changed) {
+                  count++;
+                  return {
+                    ...st,
+                    mentor: newMentor,
+                    mentorMailid: newMentorMail,
+                    counselorName: newCounselor
+                  };
+                }
+                return st;
+              });
+
+              if (count > 0) {
+                setData(updatedStudents);
+                const changedStudents = updatedStudents.filter((st, idx) => data[idx] !== st);
+                for (const st of changedStudents) {
+                  await saveStudentInFirestore(st);
+                }
+              }
+              return count;
+            }}
           />
         )}
       </AnimatePresence>

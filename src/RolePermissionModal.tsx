@@ -14,7 +14,11 @@ import {
   Upload,
   Download,
   CheckCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Pencil,
+  RefreshCw,
+  UserCheck,
+  Edit3
 } from 'lucide-react';
 import { UserRoleMapping } from './types';
 import { 
@@ -33,6 +37,7 @@ interface RolePermissionModalProps {
   availableMentors: string[];
   triggerBanner: (message: string, type: 'success' | 'error' | 'info') => void;
   onRolesUpdated: () => void;
+  onReplaceStudentEmails?: (oldEmail: string, newEmail: string) => Promise<number>;
 }
 
 export default function RolePermissionModal({
@@ -44,11 +49,22 @@ export default function RolePermissionModal({
   availableCenters,
   availableMentors,
   triggerBanner,
-  onRolesUpdated
+  onRolesUpdated,
+  onReplaceStudentEmails
 }: RolePermissionModalProps) {
   // Local role mappings list
   const [roleMappings, setRoleMappings] = useState<UserRoleMapping[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Email Change / Reassignment Tool State
+  const [showReplaceTool, setShowReplaceTool] = useState(false);
+  const [replaceOldEmail, setReplaceOldEmail] = useState('');
+  const [replaceNewEmail, setReplaceNewEmail] = useState('');
+  const [replaceRoleScope, setReplaceRoleScope] = useState<'all' | 'rahMailid' | 'rfhMailid' | 'chMailid' | 'fhMailid' | 'mentorId' | 'counselorId'>('all');
+  const [alsoUpdateStudentRecords, setAlsoUpdateStudentRecords] = useState(true);
+
+  // Single row edit modal state
+  const [editingMapping, setEditingMapping] = useState<UserRoleMapping | null>(null);
 
   // New row form state
   const [newRegion, setNewRegion] = useState('');
@@ -177,6 +193,121 @@ export default function RolePermissionModal({
         console.error("Failed to delete role mapping", err);
         triggerBanner("Failed to delete role mapping from database.", "error");
       }
+    }
+  };
+
+  // Replace email ID globally across role mappings (and optionally student records)
+  const handleBulkEmailReplace = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const oldMail = replaceOldEmail.trim().toLowerCase();
+    const newMail = replaceNewEmail.trim().toLowerCase();
+
+    if (!oldMail || !newMail) {
+      triggerBanner("Both existing email and new email are required.", "error");
+      return;
+    }
+
+    if (oldMail === newMail) {
+      triggerBanner("Old email and new email cannot be identical.", "error");
+      return;
+    }
+
+    try {
+      let affectedRowsCount = 0;
+      const updatedMappings = roleMappings.map(row => {
+        let changed = false;
+        const newRow = { ...row };
+
+        const fieldsToCheck: (keyof UserRoleMapping)[] = 
+          replaceRoleScope === 'all' 
+            ? ['rahMailid', 'rfhMailid', 'chMailid', 'fhMailid', 'mentorId', 'counselorId']
+            : [replaceRoleScope];
+
+        fieldsToCheck.forEach(field => {
+          if ((newRow[field] || '').trim().toLowerCase() === oldMail) {
+            (newRow[field] as string) = newMail;
+            changed = true;
+          }
+        });
+
+        if (changed) {
+          affectedRowsCount++;
+        }
+        return newRow;
+      });
+
+      if (affectedRowsCount === 0) {
+        triggerBanner(`No occurrences of "${oldMail}" were found in the selected scope.`, "info");
+        return;
+      }
+
+      await saveUserRolesToFirestore(updatedMappings);
+
+      let studentUpdatesCount = 0;
+      if (alsoUpdateStudentRecords && onReplaceStudentEmails) {
+        studentUpdatesCount = await onReplaceStudentEmails(oldMail, newMail);
+      }
+
+      triggerBanner(
+        `Email updated successfully! Replaced in ${affectedRowsCount} role mapping row(s)` + 
+        (studentUpdatesCount > 0 ? ` and ${studentUpdatesCount} student record(s).` : '.'),
+        "success"
+      );
+
+      setReplaceOldEmail('');
+      setReplaceNewEmail('');
+      setShowReplaceTool(false);
+      fetchMappings();
+      onRolesUpdated();
+    } catch (err) {
+      console.error("Failed to replace email ID", err);
+      triggerBanner("Failed to replace email ID in database.", "error");
+    }
+  };
+
+  // Save changes for a single edited row
+  const handleSaveEditedMapping = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMapping) return;
+
+    if (!editingMapping.region.trim() || !editingMapping.center.trim()) {
+      triggerBanner("Region and Center are required.", "error");
+      return;
+    }
+
+    try {
+      const index = roleMappings.findIndex(r => 
+        r.region.toLowerCase().trim() === editingMapping.region.toLowerCase().trim() &&
+        r.center.toLowerCase().trim() === editingMapping.center.toLowerCase().trim() &&
+        r.building.toLowerCase().trim() === editingMapping.building.toLowerCase().trim() &&
+        r.regno.trim() === editingMapping.regno.trim()
+      );
+
+      let updated = [...roleMappings];
+      const cleaned: UserRoleMapping = {
+        ...editingMapping,
+        rahMailid: editingMapping.rahMailid.trim().toLowerCase(),
+        rfhMailid: editingMapping.rfhMailid.trim().toLowerCase(),
+        chMailid: editingMapping.chMailid.trim().toLowerCase(),
+        fhMailid: editingMapping.fhMailid.trim().toLowerCase(),
+        mentorId: editingMapping.mentorId.trim().toLowerCase(),
+        counselorId: editingMapping.counselorId.trim().toLowerCase(),
+      };
+
+      if (index !== -1) {
+        updated[index] = cleaned;
+      } else {
+        updated.push(cleaned);
+      }
+
+      await saveUserRolesToFirestore(updated);
+      triggerBanner(`Role configuration row updated successfully!`, "success");
+      setEditingMapping(null);
+      fetchMappings();
+      onRolesUpdated();
+    } catch (err) {
+      console.error("Failed to update role mapping row", err);
+      triggerBanner("Failed to save edited row.", "error");
     }
   };
 
@@ -675,12 +806,22 @@ export default function RolePermissionModal({
 
                 {/* Direct Excel Paste Trigger */}
                 <button
-                  onClick={() => setShowPasteBox(!showPasteBox)}
-                  className="px-2.5 py-1.5 text-[10px] font-extrabold text-stone-700 bg-white border border-[#E3DEC3] rounded-xl hover:bg-stone-50 flex items-center gap-1"
+                  onClick={() => { setShowPasteBox(!showPasteBox); setShowReplaceTool(false); }}
+                  className="px-2.5 py-1.5 text-[10px] font-extrabold text-stone-700 bg-white border border-[#E3DEC3] rounded-xl hover:bg-stone-50 flex items-center gap-1 cursor-pointer"
                   title="Directly paste rows copied from Excel / Google Sheets"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-[#217346]" />
                   <span>Paste Sheet</span>
+                </button>
+
+                {/* Email Reassignment Tool Trigger */}
+                <button
+                  onClick={() => { setShowReplaceTool(!showReplaceTool); setShowPasteBox(false); }}
+                  className="px-2.5 py-1.5 text-[10px] font-extrabold text-white bg-[#A25A38] hover:bg-[#8B4C2E] border border-[#A25A38] rounded-xl flex items-center gap-1 cursor-pointer shadow-xs"
+                  title="Change or replace an old email ID across all permissions"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Change / Replace Email ID</span>
                 </button>
 
                 {/* Import / Export Options */}
@@ -762,7 +903,106 @@ export default function RolePermissionModal({
               </div>
             </div>
 
-            {/* Direct Paste Area */}
+            {/* Email Reassignment Tool Area */}
+            {showReplaceTool && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-[#FFFDFB] border border-[#A25A38]/30 rounded-2xl p-4 shadow-sm space-y-3"
+              >
+                <div className="flex justify-between items-center border-b border-stone-100 pb-2">
+                  <h4 className="text-[11px] font-extrabold text-[#A25A38] uppercase tracking-wider flex items-center gap-1.5">
+                    <RefreshCw className="w-4 h-4" /> Global Email ID Change & Reassignment Console
+                  </h4>
+                  <button onClick={() => setShowReplaceTool(false)} className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-stone-500 leading-normal font-medium">
+                  Easily replace an old/outdated user email address with a new email address across all role permission mapping records in Firestore.
+                </p>
+
+                <form onSubmit={handleBulkEmailReplace} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-extrabold text-stone-600 uppercase mb-1">Existing / Old Email ID</label>
+                      <input
+                        type="text"
+                        value={replaceOldEmail}
+                        onChange={e => setReplaceOldEmail(e.target.value)}
+                        placeholder="e.g. old.email@pw.live"
+                        className="w-full text-xs p-2 bg-white border border-stone-200 rounded-xl focus:ring-1 focus:ring-[#A25A38] outline-hidden font-medium"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-extrabold text-stone-600 uppercase mb-1">New / Updated Email ID</label>
+                      <input
+                        type="text"
+                        value={replaceNewEmail}
+                        onChange={e => setReplaceNewEmail(e.target.value)}
+                        placeholder="e.g. new.email@pw.live"
+                        className="w-full text-xs p-2 bg-white border border-stone-200 rounded-xl focus:ring-1 focus:ring-[#A25A38] outline-hidden font-medium"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-extrabold text-stone-600 uppercase mb-1">Role Column Scope</label>
+                      <select
+                        value={replaceRoleScope}
+                        onChange={e => setReplaceRoleScope(e.target.value as any)}
+                        className="w-full text-xs p-2 bg-white border border-stone-200 rounded-xl focus:ring-1 focus:ring-[#A25A38] outline-hidden cursor-pointer font-bold text-stone-700"
+                      >
+                        <option value="all">All Role Columns (RAH, RFH, CH, FH, Mentor, Counselor)</option>
+                        <option value="rahMailid">RAH Mailid only</option>
+                        <option value="rfhMailid">RFH MailID only</option>
+                        <option value="chMailid">CH Mailid only</option>
+                        <option value="fhMailid">FH MailId only</option>
+                        <option value="mentorId">Mentor ID only</option>
+                        <option value="counselorId">Counselor ID only</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-stone-100">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-stone-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={alsoUpdateStudentRecords}
+                        onChange={e => setAlsoUpdateStudentRecords(e.target.checked)}
+                        className="rounded border-stone-300 text-[#A25A38] focus:ring-[#A25A38]"
+                      />
+                      <span>Also update in student records (mentor & counselor fields)</span>
+                    </label>
+
+                    <div className="flex items-center gap-2">
+                      {replaceOldEmail.trim() !== '' && (
+                        <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-lg">
+                          Matches {roleMappings.filter(r => {
+                            const mail = replaceOldEmail.trim().toLowerCase();
+                            if (replaceRoleScope === 'all') {
+                              return (r.rahMailid||'').toLowerCase() === mail || (r.rfhMailid||'').toLowerCase() === mail || (r.chMailid||'').toLowerCase() === mail || (r.fhMailid||'').toLowerCase() === mail || (r.mentorId||'').toLowerCase() === mail || (r.counselorId||'').toLowerCase() === mail;
+                            }
+                            return ((r[replaceRoleScope as keyof UserRoleMapping] || '') as string).toLowerCase() === mail;
+                          }).length} mapping row(s)
+                        </span>
+                      )}
+
+                      <button
+                        type="submit"
+                        className="px-4 py-2 bg-[#A25A38] hover:bg-[#8B4C2E] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Apply Email Replacement</span>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </motion.div>
+            )}
             {showPasteBox && (
               <motion.div 
                 initial={{ opacity: 0, y: -8 }}
@@ -924,13 +1164,22 @@ export default function RolePermissionModal({
                             </td>
                             {/* Actions */}
                             <td className="p-2 text-center sticky right-0 bg-[#FFFDFB] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
-                              <button
-                                onClick={() => handleDeleteMapping(mapping)}
-                                className="p-1.5 text-stone-400 hover:text-rose-600 rounded-md hover:bg-rose-50 transition cursor-pointer"
-                                title="Delete permission configuration row"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => setEditingMapping({ ...mapping })}
+                                  className="p-1.5 text-stone-400 hover:text-indigo-600 rounded-md hover:bg-indigo-50 transition cursor-pointer"
+                                  title="Edit row configuration and email IDs"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteMapping(mapping)}
+                                  className="p-1.5 text-stone-400 hover:text-rose-600 rounded-md hover:bg-rose-50 transition cursor-pointer"
+                                  title="Delete permission configuration row"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -961,6 +1210,151 @@ export default function RolePermissionModal({
             Close Settings
           </button>
         </div>
+        {/* Single Row Edit Overlay Modal */}
+        {editingMapping && (
+          <div className="fixed inset-0 z-[120] bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-[#FFFDFB] border border-[#E3DEC3] rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-4 text-xs"
+            >
+              <div className="flex justify-between items-center border-b border-[#E3DEC3] pb-3">
+                <h3 className="font-serif font-bold text-stone-800 text-sm flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-[#A25A38]" /> Edit Role Mapping Row Configuration
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingMapping(null)}
+                  className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedMapping} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-500 uppercase mb-1">Region</label>
+                    <input
+                      type="text"
+                      value={editingMapping.region}
+                      onChange={e => setEditingMapping({ ...editingMapping, region: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-semibold text-stone-800 focus:ring-1 focus:ring-[#A25A38] outline-hidden"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-500 uppercase mb-1">Center</label>
+                    <input
+                      type="text"
+                      value={editingMapping.center}
+                      onChange={e => setEditingMapping({ ...editingMapping, center: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-semibold text-stone-800 focus:ring-1 focus:ring-[#A25A38] outline-hidden"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-500 uppercase mb-1">Building</label>
+                    <input
+                      type="text"
+                      value={editingMapping.building}
+                      onChange={e => setEditingMapping({ ...editingMapping, building: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-semibold text-stone-800 focus:ring-1 focus:ring-[#A25A38] outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-500 uppercase mb-1">Reg No</label>
+                    <input
+                      type="text"
+                      value={editingMapping.regno}
+                      onChange={e => setEditingMapping({ ...editingMapping, regno: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-mono font-bold text-stone-800 focus:ring-1 focus:ring-[#A25A38] outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-3 border-t border-stone-100">
+                  <div>
+                    <label className="block text-[10px] font-bold text-amber-800 uppercase mb-1">RAH Mailid</label>
+                    <input
+                      type="text"
+                      value={editingMapping.rahMailid}
+                      onChange={e => setEditingMapping({ ...editingMapping, rahMailid: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-amber-500 outline-hidden text-stone-800"
+                      placeholder="rah@pw.live"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-blue-800 uppercase mb-1">RFH MailID</label>
+                    <input
+                      type="text"
+                      value={editingMapping.rfhMailid}
+                      onChange={e => setEditingMapping({ ...editingMapping, rfhMailid: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-blue-500 outline-hidden text-stone-800"
+                      placeholder="rfh@pw.live"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-emerald-800 uppercase mb-1">CH Mailid</label>
+                    <input
+                      type="text"
+                      value={editingMapping.chMailid}
+                      onChange={e => setEditingMapping({ ...editingMapping, chMailid: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-emerald-500 outline-hidden text-stone-800"
+                      placeholder="ch@pw.live"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-purple-800 uppercase mb-1">FH MailId</label>
+                    <input
+                      type="text"
+                      value={editingMapping.fhMailid}
+                      onChange={e => setEditingMapping({ ...editingMapping, fhMailid: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-purple-500 outline-hidden text-stone-800"
+                      placeholder="fh@pw.live"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-orange-800 uppercase mb-1">Mentor ID</label>
+                    <input
+                      type="text"
+                      value={editingMapping.mentorId}
+                      onChange={e => setEditingMapping({ ...editingMapping, mentorId: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-orange-500 outline-hidden text-stone-800"
+                      placeholder="mentor@pw.live"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-800 uppercase mb-1">Counselor ID</label>
+                    <input
+                      type="text"
+                      value={editingMapping.counselorId}
+                      onChange={e => setEditingMapping({ ...editingMapping, counselorId: e.target.value })}
+                      className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-stone-500 outline-hidden text-stone-800"
+                      placeholder="counselor@pw.live"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-stone-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingMapping(null)}
+                    className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-[#5A7060] hover:bg-[#48594C] text-white rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                  >
+                    <CheckCircle className="w-4 h-4" /> Save Row Changes
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
       </motion.div>
     </div>
   );
