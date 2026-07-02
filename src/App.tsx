@@ -548,6 +548,12 @@ export default function App() {
     return ["Will pay", "Will Decide", "Will wait for other scholarships", "Will not continue with PW"].includes(remark);
   }, []);
 
+  // Helper to check if newRegno is valid for retention (must be present and exactly 8 characters/digits long)
+  const isValidNewRegNo = useCallback((reg?: string): boolean => {
+    if (!reg) return false;
+    return reg.trim().length === 8;
+  }, []);
+
   // Helper to determine if Dropout Reason should be enabled/opened based on Parent Remarks
   const isDropoutReasonEnabled = useCallback((remark: string | undefined): boolean => {
     if (!remark) return false;
@@ -802,7 +808,7 @@ export default function App() {
     // 4. Counselor Side Pendency
     const isCounselorPending = 
       ((item.finalRetentionStatus === 'Ready to get retained' || item.finalRetentionStatus === 'Retained') || item.finalRetentionStatus === 'Extra Scholarship Required') && 
-      (!item.counselorName || !item.counselorPwid || !item.newRegno);
+      (!item.counselorName || !item.counselorPwid || !isValidNewRegNo(item.newRegno));
 
     if (isMentorPending) return 'Mentor';
     if (isFhChPending) return 'FH/CH';
@@ -972,7 +978,8 @@ export default function App() {
       g.total += 1;
       
       const status = item.finalRetentionStatus || 'Pending';
-      if (status === 'Ready to get retained' || status === 'Retained') g.retained += 1;
+      const isRetained = isValidNewRegNo(item.newRegno) || status === 'Ready to get retained' || status === 'Retained';
+      if (isRetained) g.retained += 1;
       else if (status === 'Not Retained') g.notRetained += 1;
       else if (status === 'Extra Scholarship Required') g.extraReq += 1;
       else g.pending += 1;
@@ -1051,7 +1058,8 @@ export default function App() {
       const incrementStats = (g: TreeStats) => {
         g.total += 1;
         const status = item.finalRetentionStatus || 'Pending';
-        if (status === 'Ready to get retained' || status === 'Retained') g.retained += 1;
+        const isRetained = isValidNewRegNo(item.newRegno) || status === 'Ready to get retained' || status === 'Retained';
+        if (isRetained) g.retained += 1;
         else if (status === 'Not Retained') g.notRetained += 1;
         else if (status === 'Extra Scholarship Required') g.extraReq += 1;
         else g.pending += 1;
@@ -1188,6 +1196,15 @@ export default function App() {
         triggerBanner('Proposal Rejected by CH.', 'info');
       } else if (value === 'InProgress') {
         triggerBanner('Status marked as InProgress.', 'info');
+      }
+    }
+
+    if (key === 'newRegno') {
+      const valStr = String(value || '').trim();
+      if (valStr && student.regNo && valStr.toLowerCase() === student.regNo.trim().toLowerCase()) {
+        triggerBanner('Kindly add new reg of this student', 'error');
+      } else if (valStr && valStr.length !== 8) {
+        triggerBanner('Note: New Registration ID is valid for retention only when it is exactly 8 digits long.', 'info');
       }
     }
 
@@ -1521,6 +1538,11 @@ export default function App() {
       return;
     }
 
+    if (newStudent.newRegno?.trim() && newStudent.regNo?.trim() && newStudent.newRegno.trim().toLowerCase() === newStudent.regNo.trim().toLowerCase()) {
+      triggerBanner('Kindly add new reg of this student', 'error');
+      return;
+    }
+
     const rowToAdd: StudentScholarshipRow = {
       id: `student-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       region: newStudent.region || 'PB + J&K',
@@ -1671,7 +1693,7 @@ export default function App() {
 
       // 7. Admission Status Filter
       if (selectedAdmissionStatus !== 'All') {
-        const hasRegNo = !!(row.newRegno && row.newRegno.trim());
+        const hasRegNo = isValidNewRegNo(row.newRegno);
         if (selectedAdmissionStatus === 'Taken' && !hasRegNo) return false;
         if (selectedAdmissionStatus === 'Pending' && hasRegNo) return false;
       }
@@ -1697,8 +1719,8 @@ export default function App() {
   const filteredStats = useMemo(() => {
     const total = filteredData.length;
     
-    // 2. Re-enrolled count based on new registration ID
-    const reEnrolledCount = filteredData.filter(s => s.newRegno && s.newRegno.trim() !== '').length;
+    // 2. Re-enrolled count based on new registration ID (valid length === 8)
+    const reEnrolledCount = filteredData.filter(s => isValidNewRegNo(s.newRegno)).length;
     const retentionRate = total > 0 ? Math.round((reEnrolledCount / total) * 100) : 0;
     
     // 3. Not Retained count and dropout reasons breakdown
@@ -2375,9 +2397,11 @@ export default function App() {
           </div>
           <div className="mt-3">
             <div className="flex items-baseline gap-1.5">
-              <p className="text-3xl font-serif font-bold text-[#2B3A2C] tracking-tight">{filteredStats.retentionRate}%</p>
+              <p className="text-3xl font-serif font-bold text-[#2B3A2C] tracking-tight">
+                {filteredStats.reEnrolledCount} <span className="text-xl font-sans font-normal text-stone-500">({filteredStats.retentionRate}%)</span>
+              </p>
               <p className="text-[10px] font-bold text-[#8C764D] bg-[#F6F5EE] px-1.5 py-0.5 rounded">
-                {filteredStats.reEnrolledCount} Re-enrolled
+                {filteredStats.reEnrolledCount} / {filteredStats.total} Retained
               </p>
             </div>
             
@@ -2388,7 +2412,7 @@ export default function App() {
                 style={{ width: `${filteredStats.retentionRate}%` }}
               ></div>
             </div>
-            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">Based on counselor registration ID</p>
+            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">Based on 8-digit counselor new registration ID</p>
           </div>
         </div>
 
@@ -3827,18 +3851,41 @@ export default function App() {
                           <td className="p-2">
                             {(() => {
                               const isEditable = inlineEditingMode && canEditField('newRegno', row);
+                              const isSameReg = !!(row.newRegno && row.regNo && row.newRegno.trim().toLowerCase() === row.regNo.trim().toLowerCase());
+                              const isInvalidLength = !!(row.newRegno && row.newRegno.trim() !== '' && row.newRegno.trim().length !== 8);
+
                               return isEditable ? (
-                                <input 
-                                  type="text"
-                                  value={row.newRegno}
-                                  onChange={(e) => handleCellChange(row.id, 'newRegno', e.target.value)}
-                                  placeholder="New Regno"
-                                  className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-mono font-medium focus:border-[#5A7060]"
-                                />
+                                <div className="flex flex-col gap-0.5">
+                                  <input 
+                                    type="text"
+                                    value={row.newRegno}
+                                    onChange={(e) => handleCellChange(row.id, 'newRegno', e.target.value)}
+                                    onBlur={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val && row.regNo && val.toLowerCase() === row.regNo.trim().toLowerCase()) {
+                                        triggerBanner('Kindly add new reg of this student', 'error');
+                                      }
+                                    }}
+                                    placeholder="New Regno (8 digits)"
+                                    className={`w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border rounded-lg font-mono font-medium focus:border-[#5A7060] ${
+                                      isSameReg ? 'border-rose-500 text-rose-800 bg-rose-50' : isInvalidLength ? 'border-amber-400 text-stone-800' : 'border-[#E3DEC3]'
+                                    }`}
+                                  />
+                                  {isSameReg && (
+                                    <span className="text-[9px] font-extrabold text-rose-600 leading-tight">Kindly add new reg of this student</span>
+                                  )}
+                                </div>
                               ) : (
-                                <div className="flex items-center gap-1.5">
-                                  {inlineEditingMode && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Counselor or Central can edit New Regno" />}
-                                  <span className="font-mono text-stone-650 text-xs">{row.newRegno || '-'}</span>
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="flex items-center gap-1.5">
+                                    {inlineEditingMode && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Counselor or Central can edit New Regno" />}
+                                    <span className={`font-mono text-xs ${isSameReg ? 'text-rose-600 font-bold' : isInvalidLength ? 'text-amber-700' : 'text-stone-650'}`}>
+                                      {row.newRegno || '-'}
+                                    </span>
+                                  </div>
+                                  {isSameReg && (
+                                    <span className="text-[9px] font-extrabold text-rose-600 leading-tight">Kindly add new reg of this student</span>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -4113,14 +4160,20 @@ export default function App() {
                 </div>
               </div>
               <div className="mt-2.5">
-                <p className="text-2xl font-serif font-bold text-[#5A7060] tracking-tight">
-                  {filteredSummaryData.length > 0 
-                    ? Math.round((filteredSummaryData.filter(s => s.finalRetentionStatus === 'Retained').length / filteredSummaryData.length) * 100) 
-                    : 0}%
-                </p>
-                <p className="text-[10px] text-stone-500 mt-1 font-medium select-none">
-                  {filteredSummaryData.filter(s => s.finalRetentionStatus === 'Retained').length} retained students
-                </p>
+                {(() => {
+                  const retainedCount = filteredSummaryData.filter(s => isValidNewRegNo(s.newRegno)).length;
+                  const ratePct = filteredSummaryData.length > 0 ? Math.round((retainedCount / filteredSummaryData.length) * 100) : 0;
+                  return (
+                    <>
+                      <p className="text-2xl font-serif font-bold text-[#5A7060] tracking-tight">
+                        {retainedCount} <span className="text-lg font-sans font-normal text-stone-500">({ratePct}%)</span>
+                      </p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium select-none">
+                        {retainedCount} of {filteredSummaryData.length} retained (8-digit New Regno)
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -5360,15 +5413,31 @@ export default function App() {
                         <div className="col-span-2">
                           <div className="flex items-center justify-between">
                             <label className="block text-[10px] font-bold text-stone-500 uppercase">New Registration ID (New Regno)</label>
+                            {activeStudent.newRegno && activeStudent.regNo && activeStudent.newRegno.trim().toLowerCase() === activeStudent.regNo.trim().toLowerCase() && (
+                              <span className="text-[9px] font-bold text-rose-600">Kindly add new reg of this student</span>
+                            )}
                           </div>
                           <input 
                             type="text" 
                             disabled={!canEditField('newRegno', activeStudent)}
                             value={activeStudent.newRegno || ''}
                             onChange={(e) => handleCellChange(activeStudent.id, 'newRegno', e.target.value)}
-                            placeholder="e.g. 23211166"
-                            className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white font-mono focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-50 disabled:text-stone-400"
+                            onBlur={(e) => {
+                              const val = e.target.value.trim();
+                              if (val && activeStudent.regNo && val.toLowerCase() === activeStudent.regNo.trim().toLowerCase()) {
+                                triggerBanner('Kindly add new reg of this student', 'error');
+                              }
+                            }}
+                            placeholder="e.g. 23211166 (8 digits)"
+                            className={`mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border rounded-lg p-2 focus:bg-white font-mono focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-50 disabled:text-stone-400 ${
+                              activeStudent.newRegno && activeStudent.regNo && activeStudent.newRegno.trim().toLowerCase() === activeStudent.regNo.trim().toLowerCase()
+                                ? 'border-rose-400 bg-rose-50 text-rose-800'
+                                : 'border-[#E3DEC3]'
+                            }`}
                           />
+                          {activeStudent.newRegno && activeStudent.regNo && activeStudent.newRegno.trim().toLowerCase() === activeStudent.regNo.trim().toLowerCase() && (
+                            <p className="text-[10px] font-bold text-rose-600 mt-1">Kindly add new reg of this student</p>
+                          )}
                         </div>
 
                         <div className="col-span-2 space-y-1.5">
