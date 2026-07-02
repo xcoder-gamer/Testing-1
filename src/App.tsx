@@ -40,6 +40,9 @@ import {
   BarChart3,
   LogOut,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
   ShieldAlert,
   Hourglass
 } from 'lucide-react';
@@ -575,9 +578,34 @@ export default function App() {
     return ["Re-enrolled", "Not Retained - Directly connect once again with Mentor"].includes(status);
   }, []);
 
-  // Helper to check if a student registration is unworked (untouched by any counselor)
+  // Helper to check if a student registration is unworked (no user has edited/worked on it in any module)
   const isUnworked = useCallback((row: StudentScholarshipRow): boolean => {
-    return (!row.counselorStatus || row.counselorStatus.trim() === '') && (!row.newRegno || row.newRegno.trim() === '');
+    // Counselor module edits
+    const hasCounselorWork = !!(
+      (row.counselorStatus && row.counselorStatus.trim() !== '') ||
+      (row.newRegno && row.newRegno.trim() !== '')
+    );
+
+    // Mentor module edits
+    const hasMentorWork = !!(
+      (row.parentRemarks && row.parentRemarks.trim() !== '') ||
+      (row.discontinueReason && row.discontinueReason.trim() !== '') ||
+      (row.paymentDate && row.paymentDate.trim() !== '') ||
+      (row.retentionProbability && row.retentionProbability.trim() !== '') ||
+      (row.proposedScholarship && row.proposedScholarship.trim() !== '') ||
+      (row.finalRetentionStatus && row.finalRetentionStatus.trim() !== '' && row.finalRetentionStatus !== 'Pending') ||
+      (row.ptmStatus && row.ptmStatus.trim() !== '' && row.ptmStatus !== 'Pending' && row.ptmStatus !== 'Not Scheduled' && row.ptmStatus !== 'Not Initiated') ||
+      row.whatsappIntimation ||
+      row.extraScholarshipDemand
+    );
+
+    // Approval (FH/CH/RAH) module edits
+    const hasApprovalWork = !!(
+      (row.extraScholarshipStatus && row.extraScholarshipStatus.trim() !== '') ||
+      (row.rahStatus && row.rahStatus.trim() !== '')
+    );
+
+    return !hasCounselorWork && !hasMentorWork && !hasApprovalWork;
   }, []);
 
   // Helper to parse scholarship values into an equivalent percentage (e.g., Flat 10k -> 120% value, Flat 15k -> 110% value, 100% -> 100%)
@@ -861,6 +889,56 @@ export default function App() {
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [inlineEditingMode, setInlineEditingMode] = useState(true);
 
+  // Sorting state for main student table
+  const [sortColumn, setSortColumn] = useState<keyof StudentScholarshipRow | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (column: keyof StudentScholarshipRow) => {
+    if (sortColumn === column) {
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else {
+        setSortColumn(null);
+        setSortDirection('asc');
+      }
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortHeader = (
+    field: keyof StudentScholarshipRow,
+    label: string,
+    widthClass: string,
+    extraClasses: string = ''
+  ) => {
+    const isSorted = sortColumn === field;
+    return (
+      <th
+        key={String(field)}
+        onClick={() => handleSort(field)}
+        className={`${widthClass} p-3 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3] cursor-pointer hover:bg-[#F2EDDF] transition-colors select-none ${extraClasses}`}
+        title={`Click to sort by ${label}`}
+      >
+        <div className="flex items-center justify-between gap-1">
+          <span className="truncate">{label}</span>
+          <span className="shrink-0 text-stone-400">
+            {isSorted ? (
+              sortDirection === 'asc' ? (
+                <ArrowUp className="w-3 h-3 text-[#5A7060] stroke-[2.5]" />
+              ) : (
+                <ArrowDown className="w-3 h-3 text-[#5A7060] stroke-[2.5]" />
+              )
+            ) : (
+              <ArrowUpDown className="w-3 h-3 opacity-40 hover:opacity-100" />
+            )}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
   // Top level view state
   const [activeView, setActiveView] = useState<'database' | 'summary'>('database');
 
@@ -960,7 +1038,28 @@ export default function App() {
 
   // Core statistical cuts calculation logic for the selected dimensions
   const getCutsForField = useCallback((field: keyof StudentScholarshipRow) => {
-    const groups: { [key: string]: { total: number; retained: number; notRetained: number; extraReq: number; pending: number; whatsapp: number; ptmDone: number; highRisk: number } } = {};
+    const groups: { 
+      [key: string]: { 
+        total: number; 
+        retained: number; 
+        notRetained: number; 
+        notRetainedLow: number;
+        notRetainedMed: number;
+        notRetainedHigh: number;
+        notRetainedUnset: number;
+        extraReq: number; 
+        pending: number; 
+        whatsapp: number; 
+        ptmDone: number; 
+        highRisk: number;
+        probLow: number;
+        probMed: number;
+        probHigh: number;
+        probUnrated: number;
+        reasonsCount: number;
+        reasonsMap: { [reason: string]: number };
+      } 
+    } = {};
     
     filteredSummaryData.forEach(item => {
       let val = String(item[field] || '').trim();
@@ -972,30 +1071,81 @@ export default function App() {
         val = 'Unassigned';
       }
       if (!groups[val]) {
-        groups[val] = { total: 0, retained: 0, notRetained: 0, extraReq: 0, pending: 0, whatsapp: 0, ptmDone: 0, highRisk: 0 };
+        groups[val] = { 
+          total: 0, 
+          retained: 0, 
+          notRetained: 0, 
+          notRetainedLow: 0,
+          notRetainedMed: 0,
+          notRetainedHigh: 0,
+          notRetainedUnset: 0,
+          extraReq: 0, 
+          pending: 0, 
+          whatsapp: 0, 
+          ptmDone: 0, 
+          highRisk: 0,
+          probLow: 0,
+          probMed: 0,
+          probHigh: 0,
+          probUnrated: 0,
+          reasonsCount: 0,
+          reasonsMap: {}
+        };
       }
       const g = groups[val];
       g.total += 1;
+
+      // Retention Probability calculation across full student pool
+      const probVal = (item.retentionProbability || '').trim();
+      if (probVal === 'Low') g.probLow += 1;
+      else if (probVal === 'Medium') g.probMed += 1;
+      else if (probVal === 'High') g.probHigh += 1;
+      else g.probUnrated += 1;
       
       const status = item.finalRetentionStatus || 'Pending';
-      const isRetained = isValidNewRegNo(item.newRegno) || status === 'Ready to get retained' || status === 'Retained';
-      if (isRetained) g.retained += 1;
-      else if (status === 'Not Retained') g.notRetained += 1;
-      else if (status === 'Extra Scholarship Required') g.extraReq += 1;
-      else g.pending += 1;
+      const isRetained = isValidNewRegNo(item.newRegno);
+      if (isRetained) {
+        g.retained += 1;
+      } else if (status === 'Not Retained') {
+        g.notRetained += 1;
+        if (probVal === 'Low') g.notRetainedLow += 1;
+        else if (probVal === 'Medium') g.notRetainedMed += 1;
+        else if (probVal === 'High') g.notRetainedHigh += 1;
+        else g.notRetainedUnset += 1;
+      } else if (status === 'Extra Scholarship Required') {
+        g.extraReq += 1;
+      } else {
+        g.pending += 1;
+      }
+
+      // Dropout reasons tracking for non-retained students
+      const reason = (item.discontinueReason || '').trim();
+      if (reason && (!isRetained || status === 'Not Retained')) {
+        g.reasonsCount += 1;
+        g.reasonsMap[reason] = (g.reasonsMap[reason] || 0) + 1;
+      }
 
       if (item.whatsappIntimation) g.whatsapp += 1;
       if (item.ptmStatus && (item.ptmStatus.toLowerCase().includes('done') || item.ptmStatus.toLowerCase().includes('completed') || item.ptmStatus.toLowerCase().includes('conducted'))) g.ptmDone += 1;
-      if (item.retentionProbability === 'Low') g.highRisk += 1;
+      if (probVal === 'Low') g.highRisk += 1;
     });
 
-    return Object.entries(groups).map(([key, stats]) => ({
-      key,
-      ...stats,
-      retentionRate: stats.total > 0 ? Math.round((stats.retained / stats.total) * 100) : 0,
-      whatsappRate: stats.total > 0 ? Math.round((stats.whatsapp / stats.total) * 100) : 0,
-      ptmRate: stats.total > 0 ? Math.round((stats.ptmDone / stats.total) * 100) : 0,
-    })).sort((a, b) => b.total - a.total); // Sort by total student count descending
+    return Object.entries(groups).map(([key, stats]) => {
+      const sortedReasons = Object.entries(stats.reasonsMap)
+        .sort((a, b) => b[1] - a[1])
+        .map(([r, c]) => `${r} (${c})`);
+      
+      const reasonsSummary = sortedReasons.length > 0 ? sortedReasons.join(', ') : 'None';
+
+      return {
+        key,
+        ...stats,
+        reasonsSummary,
+        retentionRate: stats.total > 0 ? Math.round((stats.retained / stats.total) * 100) : 0,
+        whatsappRate: stats.total > 0 ? Math.round((stats.whatsapp / stats.total) * 100) : 0,
+        ptmRate: stats.total > 0 ? Math.round((stats.ptmDone / stats.total) * 100) : 0,
+      };
+    }).sort((a, b) => b.total - a.total); // Sort by total student count descending
   }, [filteredSummaryData, userRolesList]);
 
   // Hierarchical Drill Down structure: Region -> Center -> Building -> Class
@@ -1058,7 +1208,7 @@ export default function App() {
       const incrementStats = (g: TreeStats) => {
         g.total += 1;
         const status = item.finalRetentionStatus || 'Pending';
-        const isRetained = isValidNewRegNo(item.newRegno) || status === 'Ready to get retained' || status === 'Retained';
+        const isRetained = isValidNewRegNo(item.newRegno);
         if (isRetained) g.retained += 1;
         else if (status === 'Not Retained') g.notRetained += 1;
         else if (status === 'Extra Scholarship Required') g.extraReq += 1;
@@ -1714,6 +1864,31 @@ export default function App() {
       return true;
     });
   }, [data, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, selectedWorkStatus, getStudentPendency, isUnworked, userRole, simulatedRegion, simulatedCenter, simulatedMentor, activeEmail, userRolesList]);
+
+  // Sorted data calculation for the main student list table
+  const sortedData = useMemo(() => {
+    if (!sortColumn) return filteredData;
+
+    return [...filteredData].sort((a, b) => {
+      let valA = a[sortColumn];
+      let valB = b[sortColumn];
+
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+
+      if (typeof valA === 'boolean' || typeof valB === 'boolean') {
+        const numA = valA ? 1 : 0;
+        const numB = valB ? 1 : 0;
+        return sortDirection === 'asc' ? numA - numB : numB - numA;
+      }
+
+      const strA = String(valA).trim();
+      const strB = String(valB).trim();
+
+      const result = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: 'base' });
+      return sortDirection === 'asc' ? result : -result;
+    });
+  }, [filteredData, sortColumn, sortDirection]);
 
   // Dynamic Scorecard statistics based on active filters and role permission level
   const filteredStats = useMemo(() => {
@@ -2549,7 +2724,7 @@ export default function App() {
                 style={{ width: `${filteredStats.unworkedRate}%` }}
               ></div>
             </div>
-            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">Untouched by counselors</p>
+            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">No user edits in any module</p>
           </div>
         </div>
       </section>
@@ -3160,52 +3335,44 @@ export default function App() {
                   </th>
 
                   {/* 1. Pin Name Column */}
-                  {visibleColumns.studentName && (
-                    <th className="w-[160px] p-3 text-[#2B3A2C] font-serif font-extrabold text-xs uppercase tracking-wider sticky left-0 bg-[#FAF3EC] z-20 border-r border-[#E3DEC3] border-b border-[#E3DEC3] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                      Student Name (STG)
-                    </th>
-                  )}
+                  {visibleColumns.studentName && renderSortHeader('studentName', 'Student Name (STG)', 'w-[160px]', 'sticky left-0 bg-[#FAF3EC] text-[#2B3A2C] font-serif font-extrabold text-xs z-20 border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]')}
 
                   {/* 2. Pin Registration No Column */}
-                  {visibleColumns.regNo && (
-                    <th className="w-[110px] p-3 text-[#2B3A2C] font-serif font-extrabold text-xs uppercase tracking-wider sticky left-[160px] bg-[#FAF3EC] z-20 border-r border-[#E3DEC3] border-b border-[#E3DEC3] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                      Reg No
-                    </th>
-                  )}
+                  {visibleColumns.regNo && renderSortHeader('regNo', 'Reg No', 'w-[110px]', 'sticky left-[160px] bg-[#FAF3EC] text-[#2B3A2C] font-serif font-extrabold text-xs z-20 border-r shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]')}
 
                   {/* Remaining Scrollable Columns Headers */}
-                  {visibleColumns.region && <th className="w-[110px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Region</th>}
-                  {visibleColumns.center && <th className="w-[180px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Center</th>}
-                  {visibleColumns.building && <th className="w-[180px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Building</th>}
-                  {visibleColumns.batchName && <th className="w-[110px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Batch Name</th>}
-                  {visibleColumns.class && <th className="w-[80px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Class</th>}
-                  {visibleColumns.scholarship && <th className="w-[180px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Scholarship Tier</th>}
-                  {visibleColumns.mentor && <th className="w-[130px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Mentor</th>}
-                  {visibleColumns.mentorMailid && <th className="w-[160px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Mentor MailID</th>}
-                  {visibleColumns.pwid && <th className="w-[100px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">PWID</th>}
+                  {visibleColumns.region && renderSortHeader('region', 'Region', 'w-[110px]', 'text-stone-500')}
+                  {visibleColumns.center && renderSortHeader('center', 'Center', 'w-[180px]', 'text-stone-500')}
+                  {visibleColumns.building && renderSortHeader('building', 'Building', 'w-[180px]', 'text-stone-500')}
+                  {visibleColumns.batchName && renderSortHeader('batchName', 'Batch Name', 'w-[110px]', 'text-stone-500')}
+                  {visibleColumns.class && renderSortHeader('class', 'Class', 'w-[80px]', 'text-stone-500')}
+                  {visibleColumns.scholarship && renderSortHeader('scholarship', 'Scholarship Tier', 'w-[180px]', 'text-stone-500')}
+                  {visibleColumns.mentor && renderSortHeader('mentor', 'Mentor', 'w-[130px]', 'text-stone-500')}
+                  {visibleColumns.mentorMailid && renderSortHeader('mentorMailid', 'Mentor MailID', 'w-[160px]', 'text-stone-500')}
+                  {visibleColumns.pwid && renderSortHeader('pwid', 'PWID', 'w-[100px]', 'text-stone-500')}
                   
                   {/* WhatsApp checkbox header */}
-                  {visibleColumns.whatsappIntimation && <th className="w-[130px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider text-center border-b border-[#E3DEC3]">WhatsApp Sent</th>}
+                  {visibleColumns.whatsappIntimation && renderSortHeader('whatsappIntimation', 'WhatsApp Sent', 'w-[130px]', 'text-stone-500 text-center')}
                   
                   {/* Key Retention process inputs */}
-                  {visibleColumns.ptmStatus && <th className="w-[150px] p-3 text-[#5A7060] font-bold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">PTM Status</th>}
-                  {visibleColumns.parentRemarks && <th className="w-[280px] p-3 text-[#5A7060] font-bold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Parent Remarks</th>}
-                  {visibleColumns.paymentDate && <th className="w-[160px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Followup Date / Propose re-enrolled date</th>}
-                  {visibleColumns.discontinueReason && <th className="w-[240px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Discontinue Reason</th>}
-                  {visibleColumns.retentionProbability && <th className="w-[150px] p-3 text-[#5A7060] font-bold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Retention Prob.</th>}
+                  {visibleColumns.ptmStatus && renderSortHeader('ptmStatus', 'PTM Status', 'w-[150px]', 'text-[#5A7060] font-bold')}
+                  {visibleColumns.parentRemarks && renderSortHeader('parentRemarks', 'Parent Remarks', 'w-[280px]', 'text-[#5A7060] font-bold')}
+                  {visibleColumns.paymentDate && renderSortHeader('paymentDate', 'Followup Date / Propose re-enrolled date', 'w-[160px]', 'text-stone-500')}
+                  {visibleColumns.discontinueReason && renderSortHeader('discontinueReason', 'Discontinue Reason', 'w-[240px]', 'text-stone-500')}
+                  {visibleColumns.retentionProbability && renderSortHeader('retentionProbability', 'Retention Prob.', 'w-[150px]', 'text-[#5A7060] font-bold')}
                   
                   {/* Proposal & Approvals */}
-                  {visibleColumns.proposedScholarship && userRole !== 'Mentor' && <th className="w-[160px] p-3 text-[#8C764D] font-bold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Extra Scholarship Demand by Parents</th>}
-                  {visibleColumns.extraScholarshipStatus && userRole !== 'FH' && userRole !== 'Mentor' && <th className="w-[155px] p-3 text-[#8C764D] font-bold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Extra Scholarship Status</th>}
-                  {visibleColumns.rahStatus && userRole !== 'FH' && userRole !== 'Mentor' && <th className="w-[155px] p-3 text-[#A25A38] font-bold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Final Approval (RAH)</th>}
-                  {visibleColumns.finalRetentionStatus && <th className="w-[180px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Final Retention</th>}
-                  {visibleColumns.finalScholarship && userRole !== 'Mentor' && <th className="w-[140px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Final Scholarship</th>}
+                  {visibleColumns.proposedScholarship && userRole !== 'Mentor' && renderSortHeader('proposedScholarship', 'Extra Scholarship Demand by Parents', 'w-[160px]', 'text-[#8C764D] font-bold')}
+                  {visibleColumns.extraScholarshipStatus && userRole !== 'FH' && userRole !== 'Mentor' && renderSortHeader('extraScholarshipStatus', 'Extra Scholarship Status', 'w-[155px]', 'text-[#8C764D] font-bold')}
+                  {visibleColumns.rahStatus && userRole !== 'FH' && userRole !== 'Mentor' && renderSortHeader('rahStatus', 'Final Approval (RAH)', 'w-[155px]', 'text-[#A25A38] font-bold')}
+                  {visibleColumns.finalRetentionStatus && renderSortHeader('finalRetentionStatus', 'Final Retention', 'w-[180px]', 'text-stone-500')}
+                  {visibleColumns.finalScholarship && userRole !== 'Mentor' && renderSortHeader('finalScholarship', 'Final Scholarship', 'w-[140px]', 'text-stone-500')}
                   
                   {/* Counselors mapping */}
-                  {visibleColumns.counselorName && <th className="w-[140px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Counselor</th>}
-                  {visibleColumns.counselorPwid && <th className="w-[120px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Counselor PWID</th>}
-                  {visibleColumns.newRegno && <th className="w-[110px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">New Regno</th>}
-                  {visibleColumns.counselorStatus && <th className="w-[180px] p-3 text-stone-500 font-semibold text-[11px] uppercase tracking-wider border-b border-[#E3DEC3]">Counselor Status</th>}
+                  {visibleColumns.counselorName && renderSortHeader('counselorName', 'Counselor', 'w-[140px]', 'text-stone-500')}
+                  {visibleColumns.counselorPwid && renderSortHeader('counselorPwid', 'Counselor PWID', 'w-[120px]', 'text-stone-500')}
+                  {visibleColumns.newRegno && renderSortHeader('newRegno', 'New Regno', 'w-[110px]', 'text-stone-500')}
+                  {visibleColumns.counselorStatus && renderSortHeader('counselorStatus', 'Counselor Status', 'w-[180px]', 'text-stone-500')}
 
                   {/* Actions Column */}
                   <th className="w-[100px] p-2 bg-[#FAF8F5] sticky right-0 z-10 text-center text-stone-500 font-semibold text-[11px] uppercase border-[#E3DEC3] border-b border-l">
@@ -3215,7 +3382,7 @@ export default function App() {
               </thead>
 
               <tbody className="divide-y divide-[#E3DEC3]/60">
-                {filteredData.length === 0 ? (
+                {sortedData.length === 0 ? (
                   <tr>
                     <td colSpan={26} className="text-center py-20 bg-[#FAF8F5]">
                       <div className="flex flex-col items-center justify-center text-stone-400">
@@ -3238,7 +3405,7 @@ export default function App() {
                     </td>
                   </tr>
                 ) : (
-                  filteredData.map((row, index) => {
+                  sortedData.map((row, index) => {
                     const isSelected = selectedRowIds.includes(row.id);
                     return (
                       <tr 
@@ -4641,40 +4808,49 @@ export default function App() {
                 <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Mentor</span>
               </div>
 
-              <div className="overflow-x-auto max-h-[350px] overflow-y-auto">
+              <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse font-sans">
                   <thead>
                     <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
-                      <th className="py-2.5 pr-4">Mentor Name</th>
-                      <th className="py-2.5 text-center">Student Pool</th>
-                      <th className="py-2.5 text-center">Retained</th>
-                      <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center">Not Retained</th>
-                      <th className="py-2.5 text-center">Pending Remarks</th>
-                      <th className="py-2.5 text-center">WhatsApp Sent %</th>
-                      <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
+                      <th rowSpan={2} className="py-2.5 pr-4 border-r border-[#E3DEC3]/60 align-bottom">Mentor Name</th>
+                      <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom">Student Pool</th>
+                      <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom">Retained</th>
+                      <th rowSpan={2} className="py-2.5 text-center px-3 border-r border-[#E3DEC3]/60 align-bottom">Extra Scholarship Required</th>
+                      <th colSpan={4} className="py-1 text-center bg-[#FAF3EC]/80 border-b border-[#E3DEC3] text-[#5A7060]">Probability of Retention</th>
+                    </tr>
+                    <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
+                      <th className="py-1.5 px-3 text-center text-rose-800 bg-rose-50/60 border-r border-[#E3DEC3]/40">Low</th>
+                      <th className="py-1.5 px-3 text-center text-amber-800 bg-amber-50/60 border-r border-[#E3DEC3]/40">Medium</th>
+                      <th className="py-1.5 px-3 text-center text-emerald-800 bg-emerald-50/60 border-r border-[#E3DEC3]/40">High</th>
+                      <th className="py-1.5 px-3 text-center text-stone-600 bg-stone-100/60">Unrated</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E3DEC3]/40">
                     {getCutsForField('mentor').map(cut => (
                       <tr key={cut.key} className="hover:bg-[#FAF8F5]/60 transition">
-                        <td className="py-3 font-serif font-bold text-stone-800 pr-4">{cut.key}</td>
-                        <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
-                        <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
-                        <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center text-rose-800 font-semibold">{cut.notRetained}</td>
-                        <td className="py-3 text-center text-stone-500 font-semibold">{cut.pending}</td>
-                        <td className="py-3 text-center text-indigo-700 font-semibold">{cut.whatsappRate}%</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2 justify-end">
-                            <span className="font-mono text-[10px] font-bold text-stone-600">{cut.retentionRate}%</span>
-                            <div className="w-24 bg-stone-200 h-2 rounded-full overflow-hidden border border-stone-300">
-                              <div 
-                                className="bg-[#5A7060] h-full rounded-full transition-all duration-300"
-                                style={{ width: `${cut.retentionRate}%` }}
-                              />
-                            </div>
-                          </div>
+                        <td className="py-3 font-serif font-bold text-stone-800 pr-4 border-r border-[#E3DEC3]/40">{cut.key}</td>
+                        <td className="py-3 text-center font-bold text-stone-700 px-3 border-r border-[#E3DEC3]/40">{cut.total}</td>
+                        <td className="py-3 text-center text-emerald-700 font-bold px-3 border-r border-[#E3DEC3]/40">{cut.retained}</td>
+                        <td className="py-3 text-center text-amber-700 font-bold px-3 border-r border-[#E3DEC3]/40">{cut.extraReq}</td>
+                        <td className="py-3 text-center px-3 border-r border-[#E3DEC3]/40">
+                          <span className={`inline-block font-bold px-2 py-0.5 rounded-full text-xs ${cut.probLow > 0 ? 'bg-rose-100 text-rose-800' : 'text-stone-400'}`}>
+                            {cut.probLow}
+                          </span>
+                        </td>
+                        <td className="py-3 text-center px-3 border-r border-[#E3DEC3]/40">
+                          <span className={`inline-block font-bold px-2 py-0.5 rounded-full text-xs ${cut.probMed > 0 ? 'bg-amber-100 text-amber-800' : 'text-stone-400'}`}>
+                            {cut.probMed}
+                          </span>
+                        </td>
+                        <td className="py-3 text-center px-3 border-r border-[#E3DEC3]/40">
+                          <span className={`inline-block font-bold px-2 py-0.5 rounded-full text-xs ${cut.probHigh > 0 ? 'bg-emerald-100 text-emerald-800' : 'text-stone-400'}`}>
+                            {cut.probHigh}
+                          </span>
+                        </td>
+                        <td className="py-3 text-center px-3">
+                          <span className={`inline-block font-bold px-2 py-0.5 rounded-full text-xs ${cut.probUnrated > 0 ? 'bg-stone-100 text-stone-700' : 'text-stone-400'}`}>
+                            {cut.probUnrated}
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -4698,7 +4874,7 @@ export default function App() {
                 <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">Grouped by Counselor</span>
               </div>
 
-              <div className="overflow-x-auto max-h-[350px] overflow-y-auto">
+              <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse font-sans">
                   <thead>
                     <tr className="border-b border-[#E3DEC3]/80 text-stone-500 font-extrabold uppercase tracking-wider text-[10px]">
@@ -4706,7 +4882,7 @@ export default function App() {
                       <th className="py-2.5 text-center">Student Pool</th>
                       <th className="py-2.5 text-center">Retained</th>
                       <th className="py-2.5 text-center">Extra Sch. Req</th>
-                      <th className="py-2.5 text-center">Not Retained</th>
+                      <th className="py-2.5 text-center min-w-[210px]">Not Retained (Risk & Reasons)</th>
                       <th className="py-2.5 text-center">Pending Remarks</th>
                       <th className="py-2.5 text-center">PTM Conducted %</th>
                       <th className="py-2.5 text-right w-[160px]">Retention Progress</th>
@@ -4719,7 +4895,34 @@ export default function App() {
                         <td className="py-3 text-center font-bold text-stone-700">{cut.total}</td>
                         <td className="py-3 text-center text-emerald-700 font-semibold">{cut.retained}</td>
                         <td className="py-3 text-center text-amber-700 font-semibold">{cut.extraReq}</td>
-                        <td className="py-3 text-center text-rose-800 font-semibold">{cut.notRetained}</td>
+                        <td className="py-3 text-center px-2">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-rose-800 font-bold text-xs">{cut.notRetained}</span>
+                            
+                            {(cut.notRetainedLow > 0 || cut.notRetainedMed > 0 || cut.notRetainedHigh > 0) && (
+                              <div className="flex items-center justify-center gap-1 flex-wrap">
+                                <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200/80" title="Low Retention Probability (High Risk)">
+                                  Low: {cut.notRetainedLow}
+                                </span>
+                                <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200/80" title="Medium Retention Probability">
+                                  Med: {cut.notRetainedMed}
+                                </span>
+                                <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200/80" title="High Retention Probability">
+                                  High: {cut.notRetainedHigh}
+                                </span>
+                              </div>
+                            )}
+
+                            {cut.reasonsCount > 0 && (
+                              <div 
+                                className="text-[9.5px] font-medium text-stone-600 bg-stone-100/90 px-2 py-0.5 rounded-md border border-stone-200/80 max-w-[210px] truncate cursor-help"
+                                title={`Dropout Reasons (${cut.reasonsCount}): ${cut.reasonsSummary}`}
+                              >
+                                <span className="font-extrabold text-stone-700">Reasons ({cut.reasonsCount}):</span> {cut.reasonsSummary}
+                              </div>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 text-center text-stone-500 font-semibold">{cut.pending}</td>
                         <td className="py-3 text-center text-indigo-700 font-semibold">{cut.ptmRate}%</td>
                         <td className="py-3">
