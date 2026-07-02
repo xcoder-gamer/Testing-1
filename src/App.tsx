@@ -754,7 +754,7 @@ export default function App() {
     // 1. Student detail fields are completely locked for everyone (including Central)
     const lockedStudentFields: Array<keyof StudentScholarshipRow> = [
       'studentName', 'regNo', 'batchName', 'class', 'scholarship', 'region', 'center', 
-      'building', 'pwid', 'mentor', 'mentorMailid', 'whatsappIntimation'
+      'building', 'pwid', 'mentor', 'mentorMailid'
     ];
     if (lockedStudentFields.includes(field)) {
       return false;
@@ -768,12 +768,12 @@ export default function App() {
       return ['Central', 'Counselor'].includes(userRole);
     }
 
-    // 3. Mentor & parent Coordination: editable for FH, CH, RFH, Mentor, and Central
+    // 3. Mentor & parent Coordination: editable for CH, FH, RAH, RFH, Mentor, Counselor, and Central
     const coordinationFields: Array<keyof StudentScholarshipRow> = [
-      'ptmStatus', 'parentRemarks', 'retentionProbability', 'finalRetentionStatus', 'paymentDate', 'discontinueReason'
+      'ptmStatus', 'parentRemarks', 'retentionProbability', 'finalRetentionStatus', 'paymentDate', 'discontinueReason', 'whatsappIntimation'
     ];
     if (coordinationFields.includes(field)) {
-      return ['Central', 'CH', 'FH', 'RAH', 'RFH', 'Mentor'].includes(userRole);
+      return ['Central', 'CH', 'FH', 'RAH', 'RFH', 'Mentor', 'Counselor'].includes(userRole);
     }
 
     // 4. Extra Scholarship related fields:
@@ -966,25 +966,66 @@ export default function App() {
     }, 4000);
   };
 
+  // Student dataset filtered strictly by user's role and email permissions (Row-level access control)
+  const userScopedData = useMemo(() => {
+    if (userRole === 'Central') {
+      return data;
+    }
+
+    const currentEmail = activeEmail.toLowerCase().trim();
+    return data.filter(row => {
+      // Check userRolesList mapping for this student (matches via registration number)
+      const mapping = userRolesList.find(m => m.regno === row.regNo);
+      if (mapping) {
+        const rah = (mapping.rahMailid || '').toLowerCase().trim();
+        const rfh = (mapping.rfhMailid || '').toLowerCase().trim();
+        const ch = (mapping.chMailid || '').toLowerCase().trim();
+        const fh = (mapping.fhMailid || '').toLowerCase().trim();
+        const mentor = (mapping.mentorId || '').toLowerCase().trim();
+        const counselor = (mapping.counselorId || '').toLowerCase().trim();
+
+        if (
+          rah === currentEmail ||
+          rfh === currentEmail ||
+          ch === currentEmail ||
+          fh === currentEmail ||
+          mentor === currentEmail ||
+          counselor === currentEmail
+        ) {
+          return true;
+        }
+      }
+
+      // Fallback: Also check if active email is written inside any string property of the row (e.g. mentorMailid or other cell)
+      for (const val of Object.values(row)) {
+        if (typeof val === 'string' && val.toLowerCase().trim().includes(currentEmail)) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+  }, [data, userRole, activeEmail, userRolesList]);
+
   // Find unique values for filters
   const centers = useMemo(() => {
-    return ['All', ...Array.from(new Set(data.map((item) => item.center).filter(Boolean)))];
-  }, [data]);
+    return ['All', ...Array.from(new Set(userScopedData.map((item) => item.center).filter(Boolean)))];
+  }, [userScopedData]);
 
   const scholarships = useMemo(() => {
-    return ['All', ...Array.from(new Set(data.map((item) => item.scholarship).filter(Boolean)))];
-  }, [data]);
+    return ['All', ...Array.from(new Set(userScopedData.map((item) => item.scholarship).filter(Boolean)))];
+  }, [userScopedData]);
 
   // Statistics summaries
   const stats = useMemo(() => {
-    const total = data.length;
-    const flat10Count = data.filter(s => s.scholarship?.toLowerCase().includes('10k')).length;
-    const flat15Count = data.filter(s => s.scholarship?.toLowerCase().includes('15k')).length;
-    const fullScholarshipCount = data.filter(s => s.scholarship?.toLowerCase().includes('100%')).length;
-    const whatsappCount = data.filter(s => s.whatsappIntimation).length;
-    const pendingRemarks = data.filter(s => !s.parentRemarks || s.parentRemarks.trim() === '').length;
-    const highRiskCount = data.filter(s => s.retentionProbability === 'Low').length; // Low chance of retention is High Risk
-    const mediumRiskCount = data.filter(s => s.retentionProbability === 'Medium').length;
+    const total = userScopedData.length;
+    const flat10Count = userScopedData.filter(s => s.scholarship?.toLowerCase().includes('10k')).length;
+    const flat15Count = userScopedData.filter(s => s.scholarship?.toLowerCase().includes('15k')).length;
+    const fullScholarshipCount = userScopedData.filter(s => s.scholarship?.toLowerCase().includes('100%')).length;
+    const whatsappCount = userScopedData.filter(s => s.whatsappIntimation).length;
+    const pendingRemarks = userScopedData.filter(s => !s.parentRemarks || s.parentRemarks.trim() === '').length;
+    const highRiskCount = userScopedData.filter(s => s.retentionProbability === 'Low').length; // Low chance of retention is High Risk
+    const mediumRiskCount = userScopedData.filter(s => s.retentionProbability === 'Medium').length;
     
     return {
       total,
@@ -997,24 +1038,24 @@ export default function App() {
       highRiskCount,
       mediumRiskCount
     };
-  }, [data]);
+  }, [userScopedData]);
 
   // Dynamic summary filter list unique values
   const summaryFiltersOptions = useMemo(() => {
     return {
-      regions: ['All', ...Array.from(new Set(data.map(item => item.region).filter(Boolean)))].sort(),
-      centers: ['All', ...Array.from(new Set(data.map(item => item.center).filter(Boolean)))].sort(),
-      buildings: ['All', ...Array.from(new Set(data.map(item => item.building).filter(Boolean)))].sort(),
-      classes: ['All', ...Array.from(new Set(data.map(item => item.class).filter(Boolean)))].sort(),
-      ptmStatuses: ['All', ...Array.from(new Set(data.map(item => item.ptmStatus).filter(Boolean)))].sort(),
+      regions: ['All', ...Array.from(new Set(userScopedData.map(item => item.region).filter(Boolean)))].sort(),
+      centers: ['All', ...Array.from(new Set(userScopedData.map(item => item.center).filter(Boolean)))].sort(),
+      buildings: ['All', ...Array.from(new Set(userScopedData.map(item => item.building).filter(Boolean)))].sort(),
+      classes: ['All', ...Array.from(new Set(userScopedData.map(item => item.class).filter(Boolean)))].sort(),
+      ptmStatuses: ['All', ...Array.from(new Set(userScopedData.map(item => item.ptmStatus).filter(Boolean)))].sort(),
       risks: ['All', 'High', 'Medium', 'Low', 'Unrated'],
       retentions: ['All', 'Ready to get retained', 'Retained', 'Not Retained', 'Extra Scholarship Required', 'Pending']
     };
-  }, [data]);
+  }, [userScopedData]);
 
   // Filtered dataset specifically computed for the Summary view
   const filteredSummaryData = useMemo(() => {
-    return data.filter(item => {
+    return userScopedData.filter(item => {
       if (summaryRegion !== 'All' && item.region !== summaryRegion) return false;
       if (summaryCenter !== 'All' && item.center !== summaryCenter) return false;
       if (summaryBuilding !== 'All' && item.building !== summaryBuilding) return false;
@@ -1034,7 +1075,7 @@ export default function App() {
       }
       return true;
     });
-  }, [data, summaryRegion, summaryCenter, summaryBuilding, summaryClass, summaryRisk, summaryPtmStatus, summaryRetention]);
+  }, [userScopedData, summaryRegion, summaryCenter, summaryBuilding, summaryClass, summaryRisk, summaryPtmStatus, summaryRetention]);
 
   // Core statistical cuts calculation logic for the selected dimensions
   const getCutsForField = useCallback((field: keyof StudentScholarshipRow) => {
@@ -1763,50 +1804,8 @@ export default function App() {
 
   // Filter and Search logic
   const filteredData = useMemo(() => {
-    return data.filter(row => {
-      // 1. Role-based visibility scoping
-      if (userRole !== 'Central') {
-        const currentEmail = activeEmail.toLowerCase().trim();
-        let emailMatchedInRow = false;
-        
-        // Check userRolesList mapping for this student (matches via registration number)
-        const mapping = userRolesList.find(m => m.regno === row.regNo);
-        if (mapping) {
-          const rah = (mapping.rahMailid || '').toLowerCase().trim();
-          const rfh = (mapping.rfhMailid || '').toLowerCase().trim();
-          const ch = (mapping.chMailid || '').toLowerCase().trim();
-          const fh = (mapping.fhMailid || '').toLowerCase().trim();
-          const mentor = (mapping.mentorId || '').toLowerCase().trim();
-          const counselor = (mapping.counselorId || '').toLowerCase().trim();
-
-          if (
-            rah === currentEmail ||
-            rfh === currentEmail ||
-            ch === currentEmail ||
-            fh === currentEmail ||
-            mentor === currentEmail ||
-            counselor === currentEmail
-          ) {
-            emailMatchedInRow = true;
-          }
-        }
-
-        // Fallback: Also check if active email is written inside any string property of the row (e.g. mentorMailid or other cell)
-        if (!emailMatchedInRow) {
-          for (const val of Object.values(row)) {
-            if (typeof val === 'string' && val.toLowerCase().trim().includes(currentEmail)) {
-              emailMatchedInRow = true;
-              break;
-            }
-          }
-        }
-        
-        if (!emailMatchedInRow) {
-          return false;
-        }
-      }
-
-      // 2. Search Box matching Name, RegNo, Batch, Mentor, Counselor
+    return userScopedData.filter(row => {
+      // 1. Search Box matching Name, RegNo, Batch, Mentor, Counselor
       const query = searchQuery.toLowerCase().trim();
       if (query !== '') {
         const matchesSearch = 
@@ -1821,40 +1820,40 @@ export default function App() {
         if (!matchesSearch) return false;
       }
 
-      // 3. Center Filter (only meaningful if not restricted to center by role)
+      // 2. Center Filter (only meaningful if not restricted to center by role)
       if (userRole !== 'CH' && userRole !== 'FH' && userRole !== 'Mentor' && selectedCenter !== 'All' && row.center !== selectedCenter) return false;
 
-      // 4. Scholarship Filter
+      // 3. Scholarship Filter
       if (selectedScholarship !== 'All') {
         if ((row.scholarship || '').trim().toLowerCase() !== selectedScholarship.trim().toLowerCase()) return false;
       }
 
-      // 5. Retention Filter
+      // 4. Retention Filter
       if (selectedRetention !== 'All') {
         if (selectedRetention === 'Not Set' && row.retentionProbability !== '') return false;
         if (selectedRetention !== 'Not Set' && row.retentionProbability !== selectedRetention) return false;
       }
 
-      // 6. WhatsApp Filter
+      // 5. WhatsApp Filter
       if (selectedWhatsApp !== 'All') {
         const isTrue = selectedWhatsApp === 'Sent';
         if (row.whatsappIntimation !== isTrue) return false;
       }
 
-      // 7. Admission Status Filter
+      // 6. Admission Status Filter
       if (selectedAdmissionStatus !== 'All') {
         const hasRegNo = isValidNewRegNo(row.newRegno);
         if (selectedAdmissionStatus === 'Taken' && !hasRegNo) return false;
         if (selectedAdmissionStatus === 'Pending' && hasRegNo) return false;
       }
 
-      // 8. Pendency Filter
+      // 7. Pendency Filter
       if (selectedPendency !== 'All') {
         const currentPendency = getStudentPendency(row);
         if (currentPendency !== selectedPendency) return false;
       }
 
-      // 9. Work Status Filter (unworked vs worked)
+      // 8. Work Status Filter (unworked vs worked)
       if (selectedWorkStatus !== 'All') {
         const untouched = isUnworked(row);
         if (selectedWorkStatus === 'Unworked' && !untouched) return false;
@@ -1863,7 +1862,7 @@ export default function App() {
 
       return true;
     });
-  }, [data, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, selectedWorkStatus, getStudentPendency, isUnworked, userRole, simulatedRegion, simulatedCenter, simulatedMentor, activeEmail, userRolesList]);
+  }, [userScopedData, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, selectedWorkStatus, getStudentPendency, isUnworked, userRole]);
 
   // Sorted data calculation for the main student list table
   const sortedData = useMemo(() => {
