@@ -40,7 +40,8 @@ import {
   BarChart3,
   LogOut,
   ArrowRight,
-  ShieldAlert
+  ShieldAlert,
+  Hourglass
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentScholarshipRow, ActivityLog, UserRoleMapping, SCHOLARSHIPS_LIST } from './types';
@@ -547,16 +548,30 @@ export default function App() {
     return ["Will pay", "Will Decide", "Will wait for other scholarships", "Will not continue with PW"].includes(remark);
   }, []);
 
+  // Helper to determine if Dropout Reason should be enabled/opened based on Parent Remarks
+  const isDropoutReasonEnabled = useCallback((remark: string | undefined): boolean => {
+    if (!remark) return false;
+    return remark === "Will not continue with PW" || !["Will pay", "Will Decide", "Will wait for other scholarships", "Will not continue with PW"].includes(remark);
+  }, []);
+
   // Helper to check if a discontinue reason is a standard dropdown option
   const isStandardDiscontinueReason = useCallback((reason: string | undefined): boolean => {
     if (!reason) return true;
-    return ["academic concern", "father transfer", "health issue", "non acad issue"].includes(reason);
+    return [
+      "academic concern", "father transfer", "health issue", "non acad issue",
+      "School Timing Issue", "Transportation Issue", "Relocation Issue", "Financial Issue"
+    ].includes(reason);
   }, []);
 
   // Helper to check if a counselor status is a standard dropdown option
   const isStandardCounselorStatus = useCallback((status: string | undefined): boolean => {
     if (!status) return true;
     return ["Re-enrolled", "Not Retained - Directly connect once again with Mentor"].includes(status);
+  }, []);
+
+  // Helper to check if a student registration is unworked (untouched by any counselor)
+  const isUnworked = useCallback((row: StudentScholarshipRow): boolean => {
+    return (!row.counselorStatus || row.counselorStatus.trim() === '') && (!row.newRegno || row.newRegno.trim() === '');
   }, []);
 
   // Helper to parse scholarship values into an equivalent percentage (e.g., Flat 10k -> 120% value, Flat 15k -> 110% value, 100% -> 100%)
@@ -606,6 +621,12 @@ export default function App() {
 
   const getFinalScholarshipOptions = useCallback((base: string, proposed: string) => {
     const list = [...SCHOLARSHIPS_LIST];
+    
+    // Explicitly add original base scholarship if it exists and is not already listed
+    if (base && !list.includes(base)) {
+      list.unshift(base);
+    }
+
     if (!proposed) return list;
 
     const basePct = getScholarshipInPct(base || '');
@@ -699,7 +720,7 @@ export default function App() {
     // 1. Student detail fields are completely locked for everyone (including Central)
     const lockedStudentFields: Array<keyof StudentScholarshipRow> = [
       'studentName', 'regNo', 'batchName', 'class', 'scholarship', 'region', 'center', 
-      'building', 'pwid', 'mentor', 'mentorMailid', 'whatsappIntimation', 'paymentDate', 'discontinueReason'
+      'building', 'pwid', 'mentor', 'mentorMailid', 'whatsappIntimation'
     ];
     if (lockedStudentFields.includes(field)) {
       return false;
@@ -715,7 +736,7 @@ export default function App() {
 
     // 3. Mentor & parent Coordination: editable for FH, CH, RFH, Mentor, and Central
     const coordinationFields: Array<keyof StudentScholarshipRow> = [
-      'ptmStatus', 'parentRemarks', 'retentionProbability', 'finalRetentionStatus'
+      'ptmStatus', 'parentRemarks', 'retentionProbability', 'finalRetentionStatus', 'paymentDate', 'discontinueReason'
     ];
     if (coordinationFields.includes(field)) {
       return ['Central', 'CH', 'FH', 'RAH', 'RFH', 'Mentor'].includes(userRole);
@@ -757,6 +778,7 @@ export default function App() {
   const [selectedWhatsApp, setSelectedWhatsApp] = useState('All');
   const [selectedAdmissionStatus, setSelectedAdmissionStatus] = useState('All');
   const [selectedPendency, setSelectedPendency] = useState('All');
+  const [selectedWorkStatus, setSelectedWorkStatus] = useState('All');
 
   // Pendency calculation helper
   const getStudentPendency = useCallback((item: StudentScholarshipRow) => {
@@ -1196,6 +1218,25 @@ export default function App() {
     setData(prev => prev.map(row => {
       if (row.id === id) {
         let updated = { ...row, [key]: value };
+
+        // Handle field dependency logic for Parent Remarks -> Discontinue Reason
+        if (key === 'parentRemarks') {
+          const isDropoutEnabled = isDropoutReasonEnabled(value as string);
+          if (!isDropoutEnabled) {
+            updated.discontinueReason = '';
+          }
+        }
+
+        // Handle field dependency logic for Final Retention Status -> Extra Scholarship fields
+        if (key === 'finalRetentionStatus') {
+          if (value !== 'Extra Scholarship Required') {
+            updated.proposedScholarship = '';
+            updated.extraScholarshipStatus = '';
+            updated.rahStatus = '';
+            updated.finalScholarship = row.scholarship || '';
+          }
+        }
+
         // Auto-compute final scholarship when status or proposed value changes
         if (key === 'extraScholarshipStatus' || key === 'rahStatus' || key === 'proposedScholarship' || key === 'scholarship') {
           const targetCHStatus = key === 'extraScholarshipStatus' ? (value as string) : row.extraScholarshipStatus;
@@ -1641,9 +1682,68 @@ export default function App() {
         if (currentPendency !== selectedPendency) return false;
       }
 
+      // 9. Work Status Filter (unworked vs worked)
+      if (selectedWorkStatus !== 'All') {
+        const untouched = isUnworked(row);
+        if (selectedWorkStatus === 'Unworked' && !untouched) return false;
+        if (selectedWorkStatus === 'Worked' && untouched) return false;
+      }
+
       return true;
     });
-  }, [data, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, getStudentPendency, userRole, simulatedRegion, simulatedCenter, simulatedMentor, activeEmail, userRolesList]);
+  }, [data, searchQuery, selectedCenter, selectedScholarship, selectedRetention, selectedWhatsApp, selectedAdmissionStatus, selectedPendency, selectedWorkStatus, getStudentPendency, isUnworked, userRole, simulatedRegion, simulatedCenter, simulatedMentor, activeEmail, userRolesList]);
+
+  // Dynamic Scorecard statistics based on active filters and role permission level
+  const filteredStats = useMemo(() => {
+    const total = filteredData.length;
+    
+    // 2. Re-enrolled count based on new registration ID
+    const reEnrolledCount = filteredData.filter(s => s.newRegno && s.newRegno.trim() !== '').length;
+    const retentionRate = total > 0 ? Math.round((reEnrolledCount / total) * 100) : 0;
+    
+    // 3. Not Retained count and dropout reasons breakdown
+    const notRetainedCount = filteredData.filter(s => s.finalRetentionStatus === 'Not Retained').length;
+    
+    // Compute reasons count for Not Retained students
+    const dropoutReasonsMap: { [reason: string]: number } = {};
+    filteredData.forEach(s => {
+      if (s.finalRetentionStatus === 'Not Retained') {
+        const r = (s.discontinueReason || 'Unspecified').trim() || 'Unspecified';
+        dropoutReasonsMap[r] = (dropoutReasonsMap[r] || 0) + 1;
+      }
+    });
+    
+    // Sort reasons by frequency
+    const sortedDropoutReasons = Object.entries(dropoutReasonsMap)
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // 4. WhatsApp intimated
+    const whatsappCount = filteredData.filter(s => s.whatsappIntimation).length;
+    const whatsappRate = total > 0 ? Math.round((whatsappCount / total) * 100) : 0;
+
+    // 5. High Risk (Low retention probability)
+    const highRiskCount = filteredData.filter(s => s.retentionProbability === 'Low').length;
+    const mediumRiskCount = filteredData.filter(s => s.retentionProbability === 'Medium').length;
+
+    // 6. Unworked Reg Nos (untouched by any counselor)
+    const unworkedCount = filteredData.filter(s => isUnworked(s)).length;
+    const unworkedRate = total > 0 ? Math.round((unworkedCount / total) * 100) : 0;
+
+    return {
+      total,
+      reEnrolledCount,
+      retentionRate,
+      notRetainedCount,
+      sortedDropoutReasons,
+      whatsappCount,
+      whatsappRate,
+      highRiskCount,
+      mediumRiskCount,
+      unworkedCount,
+      unworkedRate
+    };
+  }, [filteredData, isUnworked]);
 
   // Export as CSV File
   const handleExportCSV = () => {
@@ -2221,102 +2321,211 @@ export default function App() {
         </div>
       </section>
 
-      {/* Primary KPI Metrics Summary Bar */}
-      <section className="px-6 pt-5 grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* KPI 1 */}
-        <div className="bg-[#FDFBF9] p-4.5 rounded-2xl border border-[#E3DEC3] shadow-xs flex flex-col justify-between">
+      {/* Primary KPI Metrics Summary Bar (Role-scoped, Filter-aware, and Interactive Scorecard) */}
+      <section className="px-6 pt-5 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        {/* Card 1: Students */}
+        <div 
+          onClick={() => {
+            setSelectedCenter('All');
+            setSelectedScholarship('All');
+            setSelectedRetention('All');
+            setSelectedWhatsApp('All');
+            setSelectedAdmissionStatus('All');
+            setSelectedPendency('All');
+            setSelectedWorkStatus('All');
+            setSearchQuery('');
+          }}
+          className="bg-[#FDFBF9] p-4.5 rounded-2xl border border-[#E3DEC3] shadow-xs flex flex-col justify-between hover:shadow-md hover:border-[#CDC7AE] transition-all duration-300 cursor-pointer active:scale-98 select-none"
+          title="Click to reset all filters to show all students"
+        >
           <div className="flex items-center justify-between text-stone-400">
-            <span className="text-xs font-semibold tracking-wide uppercase font-sans">All Profiles</span>
-            <div className="bg-[#FAF8F5] p-1.5 rounded-lg text-[#5A7060]">
+            <span className="text-xs font-bold tracking-wider uppercase font-sans text-stone-600">Students</span>
+            <div className="bg-[#FAF8F5] p-2 rounded-xl text-[#5A7060] border border-[#E3DEC3]/40">
               <User className="w-4 h-4 text-[#5A7060]" />
             </div>
           </div>
-          <div className="mt-2.5">
-            <p className="text-2xl font-serif font-bold text-[#2B3A2C] tracking-tight">{stats.total}</p>
-            <p className="text-[10px] text-stone-500 mt-1 font-medium select-none">Total Scholarship Class Enrolled</p>
+          <div className="mt-3">
+            <p className="text-3xl font-serif font-bold text-[#2B3A2C] tracking-tight">{filteredStats.total}</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[10px] text-stone-500 font-medium">
+                {filteredStats.total !== stats.total ? `showing ${filteredStats.total} of ${stats.total} total` : 'showing all students'}
+              </span>
+              {filteredStats.total !== stats.total && (
+                <span className="w-1.5 h-1.5 rounded-full bg-[#8C764D] animate-pulse" title="Filtered active"></span>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* KPI 2 */}
-        <div className="bg-[#FDFBF9] p-4.5 rounded-2xl border border-[#E3DEC3] shadow-xs flex flex-col justify-between">
+        {/* Card 2: Retention Rate */}
+        <div 
+          onClick={() => setSelectedAdmissionStatus(prev => prev === 'Taken' ? 'All' : 'Taken')}
+          className={`p-4.5 rounded-2xl border shadow-xs flex flex-col justify-between hover:shadow-md transition-all duration-300 cursor-pointer active:scale-98 select-none ${
+            selectedAdmissionStatus === 'Taken'
+              ? 'bg-[#FAF5EE] border-[#8C764D] ring-2 ring-[#8C764D]/10'
+              : 'bg-[#FDFBF9] border-[#E3DEC3] hover:border-[#CDC7AE]'
+          }`}
+          title="Click to toggle filter: Show only Re-enrolled students"
+        >
           <div className="flex items-center justify-between text-stone-400">
-            <span className="text-xs font-semibold tracking-wide uppercase font-sans">Committed Scholarship</span>
-            <div className="bg-[#F6F5EE] p-1.5 rounded-lg text-amber-800">
-              <Layers className="w-4 h-4 text-[#8C764D]" />
+            <span className="text-xs font-bold tracking-wider uppercase font-sans text-stone-600">Retention Rate</span>
+            <div className="bg-[#F6F5EE] p-2 rounded-xl text-emerald-800 border border-[#E3DEC3]/40">
+              <Percent className="w-4 h-4 text-[#8C764D]" />
             </div>
           </div>
-          <div className="mt-2.5 space-y-1">
-            <p className="text-lg font-bold text-stone-800 leading-none">
-              {stats.flat10Count} <span className="text-xs font-medium text-stone-500">Flat 10k</span>
-            </p>
-            <p className="text-lg font-bold text-stone-800 leading-none">
-              {stats.flat15Count} <span className="text-xs font-medium text-stone-500">Flat 15k</span>
-            </p>
-            <p className="text-lg font-bold text-stone-800 leading-none">
-              {stats.fullScholarshipCount} <span className="text-xs font-medium text-stone-500">100% Fees</span>
-            </p>
-            <p className="text-[10px] text-stone-400 pt-1 font-medium">Foundation categories mapped</p>
-          </div>
-        </div>
-
-        {/* KPI 3 */}
-        <div className="bg-[#FDFBF9] p-4.5 rounded-2xl border border-[#E3DEC3] shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-stone-400">
-            <span className="text-xs font-semibold tracking-wide uppercase font-sans">WhatsApp Intimation</span>
-            <div className="bg-[#ECEFEA] p-1.5 rounded-lg text-[#5A7060]">
-              <CheckCircle2 className="w-4 h-4 text-[#5A7060]" />
-            </div>
-          </div>
-          <div className="mt-2.5">
+          <div className="mt-3">
             <div className="flex items-baseline gap-1.5">
-              <p className="text-2xl font-serif font-bold text-[#2B3A2C] tracking-tight">{stats.whatsappPercent}%</p>
-              <p className="text-xs font-semibold text-stone-500">({stats.whatsappCount}/{stats.total})</p>
+              <p className="text-3xl font-serif font-bold text-[#2B3A2C] tracking-tight">{filteredStats.retentionRate}%</p>
+              <p className="text-[10px] font-bold text-[#8C764D] bg-[#F6F5EE] px-1.5 py-0.5 rounded">
+                {filteredStats.reEnrolledCount} Re-enrolled
+              </p>
+            </div>
+            
+            {/* Custom mini progress bar */}
+            <div className="w-full bg-[#EAE5D9] rounded-full h-1.5 mt-2.5 overflow-hidden">
+              <div 
+                className="bg-[#8C764D] h-1.5 rounded-full transition-all duration-500" 
+                style={{ width: `${filteredStats.retentionRate}%` }}
+              ></div>
+            </div>
+            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">Based on counselor registration ID</p>
+          </div>
+        </div>
+
+        {/* Card 3: Not Retained (Dropout Breakdown) */}
+        <div 
+          onClick={() => setSelectedRetention(prev => prev === 'Low' ? 'All' : 'Low')}
+          className={`p-4.5 rounded-2xl border shadow-xs flex flex-col justify-between hover:shadow-md transition-all duration-300 cursor-pointer active:scale-98 select-none ${
+            selectedRetention === 'Low'
+              ? 'bg-[#FAF5EE] border-[#A25A38] ring-2 ring-[#A25A38]/10'
+              : 'bg-[#FDFBF9] border-[#E3DEC3] hover:border-[#CDC7AE]'
+          }`}
+          title="Click to filter by High Dropout Risk"
+        >
+          <div className="flex items-center justify-between text-stone-400">
+            <span className="text-xs font-bold tracking-wider uppercase font-sans text-stone-600">Not Retained</span>
+            <div className="bg-[#FDF3EE] p-2 rounded-xl text-rose-500 border border-[#E3DEC3]/40">
+              <XCircle className="w-4 h-4 text-[#A25A38]" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-baseline gap-1.5">
+              <p className="text-3xl font-serif font-bold text-[#A25A38] tracking-tight">{filteredStats.notRetainedCount}</p>
+              <p className="text-[10px] font-medium text-stone-500">dropouts flagged</p>
+            </div>
+            
+            {/* Dropout reasons list */}
+            {filteredStats.sortedDropoutReasons.length > 0 ? (
+              <div className="mt-2 text-[10px] space-y-1 max-h-[50px] overflow-y-auto pr-1">
+                {filteredStats.sortedDropoutReasons.slice(0, 2).map(({ reason, count }) => (
+                  <div key={reason} className="flex justify-between items-center bg-[#FAF5EE] px-1.5 py-0.5 rounded border border-[#ECE0CE]/50">
+                    <span className="truncate max-w-[120px] font-semibold text-stone-600 capitalize text-[9px]">{reason}</span>
+                    <span className="font-bold text-[#A25A38] text-[9px]">{count}</span>
+                  </div>
+                ))}
+                {filteredStats.sortedDropoutReasons.length > 2 && (
+                  <p className="text-[8px] text-stone-400 text-right">+{filteredStats.sortedDropoutReasons.length - 2} more reasons</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[9px] text-stone-400 mt-2 font-medium italic">No dropouts in selection</p>
+            )}
+          </div>
+        </div>
+
+        {/* Card 4: WhatsApp Intimated */}
+        <div 
+          onClick={() => setSelectedWhatsApp(prev => prev === 'Sent' ? 'All' : 'Sent')}
+          className={`p-4.5 rounded-2xl border shadow-xs flex flex-col justify-between hover:shadow-md transition-all duration-300 cursor-pointer active:scale-98 select-none ${
+            selectedWhatsApp === 'Sent'
+              ? 'bg-[#FAF5EE] border-[#5A7060] ring-2 ring-[#5A7060]/10'
+              : 'bg-[#FDFBF9] border-[#E3DEC3] hover:border-[#CDC7AE]'
+          }`}
+          title="Click to toggle filter: Show only WhatsApp notified students"
+        >
+          <div className="flex items-center justify-between text-stone-400">
+            <span className="text-xs font-bold tracking-wider uppercase font-sans text-stone-600">WhatsApp Intimated</span>
+            <div className="bg-[#ECEFEA] p-2 rounded-xl text-[#5A7060] border border-[#E3DEC3]/40">
+              <MessageSquare className="w-4 h-4 text-[#5A7060]" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-baseline gap-1.5">
+              <p className="text-3xl font-serif font-bold text-[#2B3A2C] tracking-tight">{filteredStats.whatsappRate}%</p>
+              <p className="text-[10px] font-medium text-stone-500">({filteredStats.whatsappCount}/{filteredStats.total})</p>
             </div>
             
             {/* Visual Progress Bar */}
-            <div className="w-full bg-[#EAE5D9] rounded-full h-1.5 mt-2 overflow-hidden">
+            <div className="w-full bg-[#EAE5D9] rounded-full h-1.5 mt-2.5 overflow-hidden">
               <div 
                 className="bg-[#5A7060] h-1.5 rounded-full transition-all duration-500" 
-                style={{ width: `${stats.whatsappPercent}%` }}
+                style={{ width: `${filteredStats.whatsappRate}%` }}
               ></div>
             </div>
+            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">WhatsApp intimations dispatched</p>
           </div>
         </div>
 
-        {/* KPI 4 */}
-        <div className="bg-[#FDFBF9] p-4.5 rounded-2xl border border-[#E3DEC3] shadow-xs flex flex-col justify-between">
+        {/* Card 5: High Risk Low Probability */}
+        <div 
+          onClick={() => setSelectedRetention(prev => prev === 'Low' ? 'All' : 'Low')}
+          className={`p-4.5 rounded-2xl border shadow-xs flex flex-col justify-between hover:shadow-md transition-all duration-300 cursor-pointer active:scale-98 select-none ${
+            selectedRetention === 'Low'
+              ? 'bg-[#FAF5EE] border-[#A25A38] ring-2 ring-[#A25A38]/10'
+              : 'bg-[#FDFBF9] border-[#E3DEC3] hover:border-[#CDC7AE]'
+          }`}
+          title="Click to toggle filter: Show only High Retention Risk students"
+        >
           <div className="flex items-center justify-between text-stone-400">
-            <span className="text-xs font-semibold tracking-wide uppercase font-sans">Pending Remarks</span>
-            <div className="bg-[#FAF0E4] p-1.5 rounded-lg text-amber-700">
-              <MessageSquare className="w-4 h-4 text-[#A25A38]" />
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <p className="text-2xl font-serif font-bold text-[#2B3A2C] tracking-tight">{stats.pendingRemarks}</p>
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold mt-1.5 ${
-              stats.pendingRemarks > 0 ? 'bg-[#FAF0E4] text-[#A25A38] border border-[#F5DDD0]' : 'bg-[#ECEFEA] text-[#425246] border border-[#D1D9CD]'
-            }`}>
-              {stats.pendingRemarks > 0 ? 'Action Recommended' : 'All remarks entered 🎉'}
-            </span>
-          </div>
-        </div>
-
-        {/* KPI 5 */}
-        <div className="bg-[#FDFBF9] p-4.5 rounded-2xl border border-[#E3DEC3] shadow-xs flex col-span-2 lg:col-span-1 flex-col justify-between">
-          <div className="flex items-center justify-between text-stone-400">
-            <span className="text-xs font-semibold tracking-wide uppercase font-sans">Retention Risk</span>
-            <div className="bg-[#FDF3EE] p-1.5 rounded-lg text-rose-500">
+            <span className="text-xs font-bold tracking-wider uppercase font-sans text-stone-600">Retention Risk</span>
+            <div className="bg-[#FDF3EE] p-2 rounded-xl text-rose-500 border border-[#E3DEC3]/40">
               <TrendingDown className="w-4 h-4 text-[#A25A38]" />
             </div>
           </div>
-          <div className="mt-2.5">
+          <div className="mt-3">
             <div className="flex items-baseline gap-1.5">
-              <p className="text-2xl font-serif font-bold text-[#A25A38] tracking-tight">{stats.highRiskCount}</p>
-              <p className="text-xs font-semibold text-stone-500 font-sans">High Risk (Low Prob.)</p>
+              <p className="text-3xl font-serif font-bold text-[#A25A38] tracking-tight">{filteredStats.highRiskCount}</p>
+              <p className="text-xs font-bold text-[#A25A38] font-sans bg-[#FDF3EE] px-1.5 py-0.5 rounded">High Risk</p>
             </div>
-            <p className="text-[10px] text-stone-500 mt-1 font-medium font-sans">
-              {stats.mediumRiskCount} Moderate risks flagged
+            <p className="text-[10px] text-stone-500 mt-2 font-medium font-sans">
+              {filteredStats.mediumRiskCount} Moderate risks flagged
             </p>
+            <p className="text-[9px] text-stone-400 mt-1 font-medium italic">Low probability of retention</p>
+          </div>
+        </div>
+
+        {/* Card 6: Unworked Reg Nos */}
+        <div 
+          onClick={() => setSelectedWorkStatus(prev => prev === 'Unworked' ? 'All' : 'Unworked')}
+          className={`p-4.5 rounded-2xl border shadow-xs flex flex-col justify-between hover:shadow-md transition-all duration-300 cursor-pointer active:scale-98 select-none ${
+            selectedWorkStatus === 'Unworked'
+              ? 'bg-[#FAF5EE] border-[#A25A38] ring-2 ring-[#A25A38]/10'
+              : 'bg-[#FDFBF9] border-[#E3DEC3] hover:border-[#CDC7AE]'
+          }`}
+          title="Click to toggle filter: Show only unworked registration numbers"
+        >
+          <div className="flex items-center justify-between text-stone-400">
+            <span className="text-xs font-bold tracking-wider uppercase font-sans text-stone-600">Unworked Reg Nos</span>
+            <div className="bg-[#FAF0E4] p-2 rounded-xl text-[#A25A38] border border-[#E3DEC3]/40">
+              <Hourglass className="w-4 h-4 text-[#A25A38]" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-baseline gap-1.5">
+              <p className="text-3xl font-serif font-bold text-[#A25A38] tracking-tight">{filteredStats.unworkedCount}</p>
+              <p className="text-xs font-bold text-[#A25A38] font-sans bg-[#FAF0E4] px-1.5 py-0.5 rounded">
+                {filteredStats.unworkedRate}%
+              </p>
+            </div>
+            
+            {/* Custom Progress Bar */}
+            <div className="w-full bg-[#EAE5D9] rounded-full h-1.5 mt-2.5 overflow-hidden">
+              <div 
+                className="bg-[#A25A38] h-1.5 rounded-full transition-all duration-500" 
+                style={{ width: `${filteredStats.unworkedRate}%` }}
+              ></div>
+            </div>
+            <p className="text-[9px] text-stone-400 mt-1.5 font-medium">Untouched by counselors</p>
           </div>
         </div>
       </section>
@@ -2520,7 +2729,7 @@ export default function App() {
             <motion.div 
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
-              className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-2 border-t border-[#E3DEC3] overflow-hidden"
+              className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 pt-2 border-t border-[#E3DEC3] overflow-hidden"
             >
               {/* Region Filter */}
               <div>
@@ -2611,11 +2820,25 @@ export default function App() {
                   <option value="None">None (Processed)</option>
                 </select>
               </div>
+
+              {/* Counselor Work Status Filter */}
+              <div>
+                <label className="block text-xs font-bold text-stone-500 mb-1.5 uppercase tracking-wide">Counselor Action</label>
+                <select 
+                  value={selectedWorkStatus} 
+                  onChange={(e) => setSelectedWorkStatus(e.target.value)}
+                  className="w-full bg-[#FAF8F5] border border-[#E3DEC3] rounded-xl px-3 py-2 text-xs font-semibold text-stone-700 cursor-pointer focus:border-[#5A7060]"
+                >
+                  <option value="All">All Actions</option>
+                  <option value="Unworked">Unworked Reg Nos</option>
+                  <option value="Worked">Worked Reg Nos</option>
+                </select>
+              </div>
             </motion.div>
           )}
 
           {/* active query badge list */}
-          {(selectedCenter !== 'All' || selectedScholarship !== 'All' || selectedRetention !== 'All' || selectedWhatsApp !== 'All' || selectedAdmissionStatus !== 'All' || selectedPendency !== 'All' || searchQuery !== '') && (
+          {(selectedCenter !== 'All' || selectedScholarship !== 'All' || selectedRetention !== 'All' || selectedWhatsApp !== 'All' || selectedAdmissionStatus !== 'All' || selectedPendency !== 'All' || selectedWorkStatus !== 'All' || searchQuery !== '') && (
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#E3DEC3] text-xs">
               <span className="text-stone-400 font-semibold select-none">Applied filters:</span>
               {searchQuery && (
@@ -2660,6 +2883,12 @@ export default function App() {
                   <X className="w-3.5 h-3.5 cursor-pointer hover:opacity-80" onClick={() => setSelectedPendency('All')} />
                 </span>
               )}
+              {selectedWorkStatus !== 'All' && (
+                <span className="bg-[#ECEFEA] text-[#425246] px-2 py-1 rounded-md font-semibold border border-[#D1D9CD] flex items-center gap-1 select-none">
+                  Counselor Action: {selectedWorkStatus}
+                  <X className="w-3.5 h-3.5 cursor-pointer hover:opacity-80" onClick={() => setSelectedWorkStatus('All')} />
+                </span>
+              )}
               <button 
                 onClick={() => {
                   setSearchQuery('');
@@ -2669,6 +2898,7 @@ export default function App() {
                   setSelectedWhatsApp('All');
                   setSelectedAdmissionStatus('All');
                   setSelectedPendency('All');
+                  setSelectedWorkStatus('All');
                 }}
                 className="text-[#A25A38] hover:text-[#804225] font-semibold hover:underline cursor-pointer"
               >
@@ -3202,36 +3432,47 @@ export default function App() {
                         {visibleColumns.discontinueReason && (
                           <td className="p-2">
                             {inlineEditingMode ? (
-                              <div className="space-y-1">
-                                <select
-                                  value={isStandardDiscontinueReason(row.discontinueReason) ? (row.discontinueReason || '') : 'other'}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (val === 'other') {
-                                      handleCellChange(row.id, 'discontinueReason', 'Custom Reason');
-                                    } else {
-                                      handleCellChange(row.id, 'discontinueReason', val);
-                                    }
-                                  }}
-                                  className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium cursor-pointer focus:border-[#5A7060]"
-                                >
-                                  <option value="">Select Reason</option>
-                                  <option value="academic concern">academic concern</option>
-                                  <option value="father transfer">father transfer</option>
-                                  <option value="health issue">health issue</option>
-                                  <option value="non acad issue">non acad issue</option>
-                                  <option value="other">other (Write...)</option>
-                                </select>
-                                {!isStandardDiscontinueReason(row.discontinueReason) && (
-                                  <input 
-                                    type="text"
-                                    value={row.discontinueReason === 'Custom Reason' ? '' : row.discontinueReason}
-                                    onChange={(e) => handleCellChange(row.id, 'discontinueReason', e.target.value)}
-                                    placeholder="Write custom reason..."
-                                    className="w-full bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium focus:border-[#5A7060] focus:ring-1 focus:ring-[#5A7060]"
-                                  />
-                                )}
-                              </div>
+                              (() => {
+                                const isDropoutEnabled = isDropoutReasonEnabled(row.parentRemarks);
+                                return (
+                                  <div className="space-y-1">
+                                    <select
+                                      disabled={!isDropoutEnabled}
+                                      value={isStandardDiscontinueReason(row.discontinueReason) ? (row.discontinueReason || '') : 'other'}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === 'other') {
+                                          handleCellChange(row.id, 'discontinueReason', 'Custom Reason');
+                                        } else {
+                                          handleCellChange(row.id, 'discontinueReason', val);
+                                        }
+                                      }}
+                                      className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium cursor-pointer focus:border-[#5A7060] disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed text-stone-800"
+                                    >
+                                      <option value="">Select Reason</option>
+                                      <option value="academic concern">academic concern</option>
+                                      <option value="father transfer">father transfer</option>
+                                      <option value="health issue">health issue</option>
+                                      <option value="non acad issue">non acad issue</option>
+                                      <option value="School Timing Issue">School Timing Issue</option>
+                                      <option value="Transportation Issue">Transportation Issue</option>
+                                      <option value="Relocation Issue">Relocation Issue</option>
+                                      <option value="Financial Issue">Financial Issue</option>
+                                      <option value="other">other (Write...)</option>
+                                    </select>
+                                    {!isStandardDiscontinueReason(row.discontinueReason) && (
+                                      <input 
+                                        disabled={!isDropoutEnabled}
+                                        type="text"
+                                        value={row.discontinueReason === 'Custom Reason' ? '' : row.discontinueReason}
+                                        onChange={(e) => handleCellChange(row.id, 'discontinueReason', e.target.value)}
+                                        placeholder="Write custom reason..."
+                                        className="w-full bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium focus:border-[#5A7060] focus:ring-1 focus:ring-[#5A7060] disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed text-stone-800"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })()
                             ) : (
                               <span className="truncate max-w-[200px] text-stone-650 font-medium">{row.discontinueReason || '-'}</span>
                             )}
@@ -3272,33 +3513,82 @@ export default function App() {
                               return (
                                 <div className="space-y-1">
                                   {isEditable ? (
-                                    <input 
-                                      type="text"
-                                      value={row.proposedScholarship}
-                                      onChange={(e) => handleCellChange(row.id, 'proposedScholarship', e.target.value)}
-                                      onBlur={(e) => {
-                                        let val = e.target.value.trim();
-                                        if (val) {
-                                          const isFlat = isFlatScholarship(row.scholarship) || isFlatScholarship(val);
-                                          if (isFlat) {
-                                            handleCellChange(row.id, 'proposedScholarship', formatFlatScholarship(val));
-                                          } else {
-                                            const isJustNum = /^\d+$/.test(val);
-                                            const isJustPct = /^\d+%$/.test(val);
-                                            if (isJustNum) {
-                                              handleCellChange(row.id, 'proposedScholarship', `${val}% on Tuition Fees`);
-                                            } else if (isJustPct) {
-                                              handleCellChange(row.id, 'proposedScholarship', `${val} on Tuition Fees`);
-                                            }
-                                          }
+                                    (() => {
+                                      const currentProposed = row.proposedScholarship || '';
+                                      const currentIsFlat = isFlatScholarship(row.scholarship) || isFlatScholarship(currentProposed);
+                                      const currentType = currentIsFlat ? 'flat' : 'pct';
+                                      
+                                      let currentNumber = '';
+                                      if (currentIsFlat) {
+                                        currentNumber = currentProposed.replace(/flat/gi, '').trim();
+                                      } else {
+                                        const pctMatch = currentProposed.match(/^(\d+)/);
+                                        if (pctMatch) {
+                                          currentNumber = pctMatch[1];
+                                        } else {
+                                          currentNumber = currentProposed.replace(/%|on|tuition|fees/gi, '').trim();
                                         }
-                                      }}
-                                      placeholder="Write Number (e.g. 15)"
-                                      className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium focus:border-[#5A7060]"
-                                    />
+                                      }
+
+                                      return (
+                                        <div className="flex flex-col gap-1 w-[180px]">
+                                          <select
+                                            value={currentType}
+                                            onChange={(e) => {
+                                              const newType = e.target.value;
+                                              if (newType === 'pct') {
+                                                handleCellChange(row.id, 'proposedScholarship', `${currentNumber || '0'}% on Tuition Fees`);
+                                              } else {
+                                                handleCellChange(row.id, 'proposedScholarship', `Flat ${currentNumber || '0'}`);
+                                              }
+                                            }}
+                                            className="w-full text-[10px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded px-1.5 py-1 focus:bg-white outline-hidden cursor-pointer text-stone-800"
+                                          >
+                                            <option value="pct">On Tuition Fee</option>
+                                            <option value="flat">Flat Fee</option>
+                                          </select>
+
+                                          {currentType === 'pct' ? (
+                                            <div className="flex items-center bg-[#FAF8F5] border border-[#E3DEC3] rounded px-1.5 py-1 focus-within:bg-white">
+                                              <input
+                                                type="text"
+                                                value={currentNumber}
+                                                onChange={(e) => {
+                                                  const val = e.target.value;
+                                                  handleCellChange(row.id, 'proposedScholarship', `${val}% on Tuition Fees`);
+                                                }}
+                                                placeholder="e.g. 15"
+                                                className="w-full bg-transparent text-[10px] font-semibold text-stone-800 outline-none border-none p-0 focus:ring-0 text-right pr-1"
+                                              />
+                                              <span className="text-[10px] text-stone-500 font-bold select-none shrink-0">% on Tuition Fees</span>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center bg-[#FAF8F5] border border-[#E3DEC3] rounded px-1.5 py-1 focus-within:bg-white">
+                                              <span className="text-[10px] text-stone-500 font-bold select-none shrink-0 pr-1">Flat </span>
+                                              <input
+                                                type="text"
+                                                value={currentNumber}
+                                                onChange={(e) => {
+                                                  const val = e.target.value;
+                                                  handleCellChange(row.id, 'proposedScholarship', `Flat ${val}`);
+                                                }}
+                                                onBlur={(e) => {
+                                                  const val = e.target.value.trim();
+                                                  if (val) {
+                                                    handleCellChange(row.id, 'proposedScholarship', formatFlatScholarship(`Flat ${val}`));
+                                                  }
+                                                }}
+                                                placeholder="e.g. 15k"
+                                                className="w-full bg-transparent text-[10px] font-semibold text-stone-800 outline-none border-none p-0 focus:ring-0"
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()
                                   ) : (
                                     <div className="flex items-center gap-1.5">
-                                      {!canEditField('proposedScholarship', row) && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Mentors/Central can propose scholarship revisions" />}
+                                      {!canEditField('proposedScholarship', row) && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only CH/RAH/Central can propose scholarship revisions" />}
                                       <span className="font-semibold text-stone-800 text-xs">{row.proposedScholarship || 'No demand'}</span>
                                     </div>
                                   )}
@@ -4758,36 +5048,47 @@ export default function App() {
 
                         <div>
                           <label className="block text-[10px] font-bold text-stone-500 uppercase">Reason if Dropout</label>
-                          <div className="space-y-1">
-                            <select
-                              value={isStandardDiscontinueReason(activeStudent.discontinueReason) ? (activeStudent.discontinueReason || '') : 'other'}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === 'other') {
-                                  handleCellChange(activeStudent.id, 'discontinueReason', 'Custom Reason');
-                                } else {
-                                  handleCellChange(activeStudent.id, 'discontinueReason', val);
-                                }
-                              }}
-                              className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer text-stone-800"
-                            >
-                              <option value="">Select Reason</option>
-                              <option value="academic concern">academic concern</option>
-                              <option value="father transfer">father transfer</option>
-                              <option value="health issue">health issue</option>
-                              <option value="non acad issue">non acad issue</option>
-                              <option value="other">other (Write...)</option>
-                            </select>
-                            {!isStandardDiscontinueReason(activeStudent.discontinueReason) && (
-                              <input 
-                                type="text" 
-                                value={activeStudent.discontinueReason === 'Custom Reason' ? '' : activeStudent.discontinueReason}
-                                onChange={(e) => handleCellChange(activeStudent.id, 'discontinueReason', e.target.value)}
-                                placeholder="Write custom reason..."
-                                className="w-full text-[11px] font-semibold bg-white border border-[#E3DEC3] rounded-lg p-2 focus:ring-1 focus:ring-[#5A7060] outline-hidden text-stone-800"
-                              />
-                            )}
-                          </div>
+                          {(() => {
+                            const isDropoutEnabled = isDropoutReasonEnabled(activeStudent.parentRemarks);
+                            return (
+                              <div className="space-y-1">
+                                <select
+                                  disabled={!isDropoutEnabled}
+                                  value={isStandardDiscontinueReason(activeStudent.discontinueReason) ? (activeStudent.discontinueReason || '') : 'other'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === 'other') {
+                                      handleCellChange(activeStudent.id, 'discontinueReason', 'Custom Reason');
+                                    } else {
+                                      handleCellChange(activeStudent.id, 'discontinueReason', val);
+                                    }
+                                  }}
+                                  className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer text-stone-800 disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
+                                >
+                                  <option value="">Select Reason</option>
+                                  <option value="academic concern">academic concern</option>
+                                  <option value="father transfer">father transfer</option>
+                                  <option value="health issue">health issue</option>
+                                  <option value="non acad issue">non acad issue</option>
+                                  <option value="School Timing Issue">School Timing Issue</option>
+                                  <option value="Transportation Issue">Transportation Issue</option>
+                                  <option value="Relocation Issue">Relocation Issue</option>
+                                  <option value="Financial Issue">Financial Issue</option>
+                                  <option value="other">other (Write...)</option>
+                                </select>
+                                {!isStandardDiscontinueReason(activeStudent.discontinueReason) && (
+                                  <input 
+                                    disabled={!isDropoutEnabled}
+                                    type="text" 
+                                    value={activeStudent.discontinueReason === 'Custom Reason' ? '' : activeStudent.discontinueReason}
+                                    onChange={(e) => handleCellChange(activeStudent.id, 'discontinueReason', e.target.value)}
+                                    placeholder="Write custom reason..."
+                                    className="w-full text-[11px] font-semibold bg-white border border-[#E3DEC3] rounded-lg p-2 focus:ring-1 focus:ring-[#5A7060] outline-hidden text-stone-800 disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* Final Status - Dropdown */}
@@ -4856,54 +5157,84 @@ export default function App() {
                           <div className="flex items-center justify-between">
                             <label className="block text-[10px] font-bold text-stone-500 uppercase">Extra Required</label>
                           </div>
-                          <div className="flex gap-1.5 mt-0.5">
-                            <select
-                              disabled={!canEditField('proposedScholarship', activeStudent)}
-                              value=""
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === 'random_pct') {
-                                  const randPct = Math.floor(Math.random() * 41) + 10; // 10% to 50%
-                                  handleCellChange(activeStudent.id, 'proposedScholarship', `${randPct}% on Tuition Fees`);
-                                } else if (val === 'random_flat') {
-                                  const flatOpts = ['Flat 5k', 'Flat 10k', 'Flat 15k', 'Flat 20k', 'Flat 25k', 'Flat 30k'];
-                                  const randFlat = flatOpts[Math.floor(Math.random() * flatOpts.length)];
-                                  handleCellChange(activeStudent.id, 'proposedScholarship', randFlat);
-                                }
-                              }}
-                              className="w-[175px] text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer disabled:bg-stone-50 disabled:text-stone-400 text-stone-800 shrink-0"
-                            >
-                              <option value="">Templates...</option>
-                              <option value="random_pct">random% on Tuition Fee</option>
-                              <option value="random_flat">Flat Random on Total Fee</option>
-                            </select>
+                          {(() => {
+                            const currentProposed = activeStudent.proposedScholarship || '';
+                            const currentIsFlat = isFlatScholarship(activeStudent.scholarship) || isFlatScholarship(currentProposed);
+                            const currentType = currentIsFlat ? 'flat' : 'pct';
                             
-                            <input
-                              type="text"
-                              disabled={!canEditField('proposedScholarship', activeStudent)}
-                              value={activeStudent.proposedScholarship || ''}
-                              onChange={(e) => handleCellChange(activeStudent.id, 'proposedScholarship', e.target.value)}
-                              onBlur={(e) => {
-                                let val = e.target.value.trim();
-                                if (val) {
-                                  const isFlat = isFlatScholarship(activeStudent.scholarship) || isFlatScholarship(val);
-                                  if (isFlat) {
-                                    handleCellChange(activeStudent.id, 'proposedScholarship', formatFlatScholarship(val));
-                                  } else {
-                                    const isJustNum = /^\d+$/.test(val);
-                                    const isJustPct = /^\d+%$/.test(val);
-                                    if (isJustNum) {
-                                      handleCellChange(activeStudent.id, 'proposedScholarship', `${val}% on Tuition Fees`);
-                                    } else if (isJustPct) {
-                                      handleCellChange(activeStudent.id, 'proposedScholarship', `${val} on Tuition Fees`);
+                            // Extract numeric value from currentProposed
+                            let currentNumber = '';
+                            if (currentIsFlat) {
+                              currentNumber = currentProposed.replace(/flat/gi, '').trim();
+                            } else {
+                              // extract just the percentage number if possible
+                              const pctMatch = currentProposed.match(/^(\d+)/);
+                              if (pctMatch) {
+                                currentNumber = pctMatch[1];
+                              } else {
+                                currentNumber = currentProposed.replace(/%|on|tuition|fees/gi, '').trim();
+                              }
+                            }
+
+                            return (
+                              <div className="flex gap-1.5 mt-0.5">
+                                <select
+                                  disabled={!canEditField('proposedScholarship', activeStudent)}
+                                  value={currentType}
+                                  onChange={(e) => {
+                                    const newType = e.target.value;
+                                    if (newType === 'pct') {
+                                      handleCellChange(activeStudent.id, 'proposedScholarship', `${currentNumber || '0'}% on Tuition Fees`);
+                                    } else {
+                                      handleCellChange(activeStudent.id, 'proposedScholarship', `Flat ${currentNumber || '0'}`);
                                     }
-                                  }
-                                }
-                              }}
-                              placeholder="e.g. 10% on Tuition Fees"
-                              className="flex-1 text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-50 disabled:text-stone-400 text-stone-800"
-                            />
-                          </div>
+                                  }}
+                                  className="w-[150px] text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer disabled:bg-stone-50 disabled:text-stone-400 text-stone-800 shrink-0"
+                                >
+                                  <option value="pct">On Tuition Fee</option>
+                                  <option value="flat">Flat Fee</option>
+                                </select>
+
+                                {currentType === 'pct' ? (
+                                  <div className="flex-1 flex items-center bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus-within:bg-white focus-within:ring-1 focus-within:ring-[#5A7060]">
+                                    <input
+                                      type="text"
+                                      disabled={!canEditField('proposedScholarship', activeStudent)}
+                                      value={currentNumber}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        handleCellChange(activeStudent.id, 'proposedScholarship', `${val}% on Tuition Fees`);
+                                      }}
+                                      placeholder="e.g. 15"
+                                      className="w-full bg-transparent text-[11px] font-semibold text-stone-800 outline-none border-none p-0 focus:ring-0 text-right pr-1"
+                                    />
+                                    <span className="text-[11px] text-stone-500 font-bold select-none shrink-0">% on Tuition Fees</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex-1 flex items-center bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus-within:bg-white focus-within:ring-1 focus-within:ring-[#5A7060]">
+                                    <span className="text-[11px] text-stone-500 font-bold select-none shrink-0 pr-1">Flat </span>
+                                    <input
+                                      type="text"
+                                      disabled={!canEditField('proposedScholarship', activeStudent)}
+                                      value={currentNumber}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        handleCellChange(activeStudent.id, 'proposedScholarship', `Flat ${val}`);
+                                      }}
+                                      onBlur={(e) => {
+                                        const val = e.target.value.trim();
+                                        if (val) {
+                                          handleCellChange(activeStudent.id, 'proposedScholarship', formatFlatScholarship(`Flat ${val}`));
+                                        }
+                                      }}
+                                      placeholder="e.g. 15000 or 15k"
+                                      className="w-full bg-transparent text-[11px] font-semibold text-stone-800 outline-none border-none p-0 focus:ring-0"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* Highlighted Combined Label Notice Area */}
@@ -4985,25 +5316,7 @@ export default function App() {
                           );
                         })()}
 
-                        {/* Final Scholarship Amount/Tier */}
-                        {userRole !== 'Mentor' && (
-                          <div className="col-span-2">
-                            <div className="flex items-center justify-between">
-                              <label className="block text-[10px] font-bold text-stone-500 uppercase font-mono font-bold">Final Scholarship (Determined)</label>
-                            </div>
-                            <select 
-                              disabled={!canEditField('finalScholarship', activeStudent)}
-                              value={activeStudent.finalScholarship || ''}
-                              onChange={(e) => handleCellChange(activeStudent.id, 'finalScholarship', e.target.value)}
-                              className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-100 disabled:text-stone-400 text-stone-800 cursor-pointer"
-                            >
-                              <option value="">Keep Original / None</option>
-                              {getFinalScholarshipOptions(activeStudent.scholarship || '', activeStudent.proposedScholarship || '').map((opt) => (
-                                <option key={opt} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
+
                       </div>
                     </div>
 
