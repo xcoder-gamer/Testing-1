@@ -5535,7 +5535,7 @@ export default function App() {
                           />
                         </div>
 
-                        <div>
+                        <div className="col-span-2">
                           <label className="block text-[10px] font-bold text-stone-500 uppercase">4.) PTM Status</label>
                           <select
                             value={activeStudent.ptmStatus || ''}
@@ -5551,20 +5551,6 @@ export default function App() {
                             <option value="DNP 2">DNP 2</option>
                             <option value="DNP 3">DNP 3</option>
                             <option value="Pending">Pending</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">8.) Probability of Retention</label>
-                          <select
-                            value={activeStudent.retentionProbability || ''}
-                            onChange={(e) => handleCellChange(activeStudent.id, 'retentionProbability', e.target.value as any)}
-                            className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer text-stone-800"
-                          >
-                            <option value="">Unrated</option>
-                            <option value="High">High</option>
-                            <option value="Medium">Medium</option>
-                            <option value="Low">Low</option>
                           </select>
                         </div>
 
@@ -5661,6 +5647,20 @@ export default function App() {
                               </div>
                             );
                           })()}
+                        </div>
+
+                        <div className="col-span-2">
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">8.) Probability of Retention</label>
+                          <select
+                            value={activeStudent.retentionProbability || ''}
+                            onChange={(e) => handleCellChange(activeStudent.id, 'retentionProbability', e.target.value as any)}
+                            className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer text-stone-800"
+                          >
+                            <option value="">Unrated</option>
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                          </select>
                         </div>
 
                         {/* Final Status - Dropdown */}
