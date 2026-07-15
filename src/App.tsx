@@ -535,6 +535,14 @@ export default function App() {
         setLogs(cloudLogs);
         const roles = await getUserRolesFromFirestore();
         setUserRolesList(roles);
+
+        // Check if any of the fetch calls detected offline or quota exceeded internally and set flags
+        if (safeLocalStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+          setIsOfflineMode(true);
+        }
+        if (safeLocalStorage.getItem('pw_scholarship_quota_exceeded_detected') === 'true') {
+          setQuotaExceeded(true);
+        }
       } catch (e) {
         console.error("Failed to load cloud database.", e);
         setIsOfflineMode(true);

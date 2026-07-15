@@ -114,6 +114,16 @@ export async function getStudentsFromFirestore(): Promise<StudentScholarshipRow[
     if (snapshot.empty) {
       console.log("No class records in Firestore.");
       if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('pw_scholarship_data_2026');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              console.log("Firestore is empty, but local cache has student records. Preserving local data.");
+              return parsed;
+            }
+          } catch (e) {}
+        }
         localStorage.setItem('pw_scholarship_data_initialized', 'true');
         localStorage.setItem('pw_scholarship_data_2026', JSON.stringify([]));
       }
@@ -221,6 +231,24 @@ export async function getLogsFromFirestore(): Promise<ActivityLog[]> {
   try {
     const q = collection(db, path);
     const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('pw_scholarship_logs_2026');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              console.log("Firestore logs empty, preserving local cache.");
+              return parsed;
+            }
+          } catch (e) {}
+        }
+        localStorage.setItem('pw_scholarship_logs_2026', JSON.stringify([]));
+      }
+      return [];
+    }
+
     const logs: ActivityLog[] = [];
     snapshot.forEach(docSnap => {
       logs.push(docSnap.data() as ActivityLog);
@@ -499,6 +527,20 @@ export async function getUserRolesFromFirestore(): Promise<UserRoleMapping[]> {
           localStorage.setItem('pw_scholarship_roles_2026', JSON.stringify(roles));
         }
         return roles;
+      }
+    }
+    
+    // Fallback to local storage if the document is missing or empty in Firestore
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pw_scholarship_roles_2026');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            console.log("Firestore settings missing or empty, preserving local user roles cache.");
+            return parsed;
+          }
+        } catch (e) {}
       }
     }
     return [];
