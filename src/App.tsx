@@ -567,15 +567,16 @@ export default function App() {
   const isStandardDiscontinueReason = useCallback((reason: string | undefined): boolean => {
     if (!reason) return true;
     return [
-      "academic concern", "father transfer", "health issue", "non acad issue",
-      "School Timing Issue", "Transportation Issue", "Relocation Issue", "Financial Issue"
+      "Stream Changes(ARTS/Commerce/Othres)", "Financial Issue", "School Timing Issue", 
+      "Academic Issue", "Non Academic Issue", "Transfer Case", "Medical Issue", "Transportation Issue",
+      "academic concern", "father transfer", "health issue", "non acad issue", "Relocation Issue"
     ].includes(reason);
   }, []);
 
   // Helper to check if a counselor status is a standard dropdown option
   const isStandardCounselorStatus = useCallback((status: string | undefined): boolean => {
     if (!status) return true;
-    return ["Re-enrolled", "Not Retained - Directly connect once again with Mentor"].includes(status);
+    return ["Re-enrolled", "Retained", "Not Retained - Directly connect once again with Mentor"].includes(status);
   }, []);
 
   // Helper to check if a student registration is unworked (no user has edited/worked on it in any module)
@@ -606,6 +607,20 @@ export default function App() {
     );
 
     return !hasCounselorWork && !hasMentorWork && !hasApprovalWork;
+  }, []);
+
+  // Helper to determine if a student has an extra scholarship requirement/demand
+  const isExtraScholarshipNeeded = useCallback((item: StudentScholarshipRow): boolean => {
+    if (!item) return false;
+    if (item.finalRetentionStatus === 'Extra Scholarship Required') return true;
+    if (Boolean(item.extraScholarshipStatus)) return true;
+    if (item.proposedScholarship) {
+      const prop = String(item.proposedScholarship).trim().toLowerCase();
+      if (prop && prop !== 'no demand' && prop !== '0%' && prop !== '0% on tuition fees' && prop !== '0% (tuition fees)' && prop !== 'flat 0' && prop !== 'none' && prop !== '0') {
+        return true;
+      }
+    }
+    return false;
   }, []);
 
   // Helper to parse scholarship values into an equivalent percentage (e.g., Flat 10k -> 120% value, Flat 15k -> 110% value, 100% -> 100%)
@@ -687,54 +702,6 @@ export default function App() {
 
     return list;
   }, [getScholarshipInPct]);
-
-  // Quota calculation for active Center
-  const centerQuotaInfo = useMemo(() => {
-    const center = (userRole === 'CH' || userRole === 'FH' || userRole === 'Mentor') ? simulatedCenter : 'Anantnag Vidyapeeth';
-    const centerStudents = data.filter(s => s.center === center);
-    const count = centerStudents.length;
-    const allowedLimit = count > 0 ? Math.ceil(count * 0.03) : 0; // CH limit is 3% of center total student count
-    
-    // Approved cases inside CH quota (which are <= 10% and not flat)
-    const used = centerStudents.filter(s => 
-      s.extraScholarshipStatus === 'Approved' && 
-      !isMoveToRAH(s.scholarship, s.proposedScholarship)
-    ).length;
-
-    const percentUsed = allowedLimit > 0 ? (used / allowedLimit) * 100 : 0;
-    return {
-      centerName: center,
-      totalStudents: count,
-      allowedLimit,
-      used,
-      percentUsed: Math.min(100, Math.round(percentUsed * 10) / 10),
-      remaining: Math.max(0, allowedLimit - used)
-    };
-  }, [data, userRole, simulatedCenter, isMoveToRAH]);
-
-  // Quota calculation for active Region
-  const regionQuotaInfo = useMemo(() => {
-    const region = (userRole === 'RAH' || userRole === 'RFH') ? simulatedRegion : 'PB + J&K';
-    const regionStudents = data.filter(s => s.region === region);
-    const count = regionStudents.length;
-    const allowedLimit = count > 0 ? Math.ceil(count * 0.01) : 0; // RAH limit is 1% of region total student count
-    
-    // Approved cases inside RAH quota (which are > 10% or flat)
-    const used = regionStudents.filter(s => 
-      s.rahStatus === 'Approved' && 
-      isMoveToRAH(s.scholarship, s.proposedScholarship)
-    ).length;
-
-    const percentUsed = allowedLimit > 0 ? (used / allowedLimit) * 100 : 0;
-    return {
-      regionName: region,
-      totalStudents: count,
-      allowedLimit,
-      used,
-      percentUsed: Math.min(100, Math.round(percentUsed * 10) / 10),
-      remaining: Math.max(0, allowedLimit - used)
-    };
-  }, [data, userRole, simulatedRegion, isMoveToRAH]);
 
   // Extract simulated domains dynamically
   const availableRegions = useMemo(() => {
@@ -951,6 +918,58 @@ export default function App() {
   const [summaryPtmStatus, setSummaryPtmStatus] = useState<string>('All');
   const [summaryRetention, setSummaryRetention] = useState<string>('All');
 
+  // Quota calculation for active Center
+  const centerQuotaInfo = useMemo(() => {
+    const center = (activeView === 'summary' && summaryCenter !== 'All')
+      ? summaryCenter
+      : ((userRole === 'CH' || userRole === 'FH' || userRole === 'Mentor') ? simulatedCenter : 'Anantnag Vidyapeeth');
+    const centerStudents = data.filter(s => s.center === center);
+    const count = centerStudents.length;
+    const allowedLimit = count > 0 ? Math.ceil(count * 0.03) : 0; // CH limit is 3% of center total student count
+    
+    // Approved cases inside CH quota (which are <= 10% and not flat)
+    const used = centerStudents.filter(s => 
+      s.extraScholarshipStatus === 'Approved' && 
+      !isMoveToRAH(s.scholarship, s.proposedScholarship)
+    ).length;
+
+    const percentUsed = allowedLimit > 0 ? (used / allowedLimit) * 100 : 0;
+    return {
+      centerName: center,
+      totalStudents: count,
+      allowedLimit,
+      used,
+      percentUsed: Math.min(100, Math.round(percentUsed * 10) / 10),
+      remaining: Math.max(0, allowedLimit - used)
+    };
+  }, [data, userRole, simulatedCenter, isMoveToRAH, activeView, summaryCenter]);
+
+  // Quota calculation for active Region
+  const regionQuotaInfo = useMemo(() => {
+    const region = (activeView === 'summary' && summaryRegion !== 'All')
+      ? summaryRegion
+      : ((userRole === 'RAH' || userRole === 'RFH') ? simulatedRegion : 'PB + J&K');
+    const regionStudents = data.filter(s => s.region === region);
+    const count = regionStudents.length;
+    const allowedLimit = count > 0 ? Math.ceil(count * 0.01) : 0; // RAH limit is 1% of region total student count
+    
+    // Approved cases inside RAH quota (which are > 10% or flat)
+    const used = regionStudents.filter(s => 
+      s.rahStatus === 'Approved' && 
+      isMoveToRAH(s.scholarship, s.proposedScholarship)
+    ).length;
+
+    const percentUsed = allowedLimit > 0 ? (used / allowedLimit) * 100 : 0;
+    return {
+      regionName: region,
+      totalStudents: count,
+      allowedLimit,
+      used,
+      percentUsed: Math.min(100, Math.round(percentUsed * 10) / 10),
+      remaining: Math.max(0, allowedLimit - used)
+    };
+  }, [data, userRole, simulatedRegion, isMoveToRAH, activeView, summaryRegion]);
+
   // Expand/collapse states for regional hierarchy drill-down
   const [expandedRegions, setExpandedRegions] = useState<{ [key: string]: boolean }>({});
   const [expandedCenters, setExpandedCenters] = useState<{ [key: string]: boolean }>({});
@@ -1069,6 +1088,8 @@ export default function App() {
         const status = item.finalRetentionStatus || 'Pending';
         if (summaryRetention === 'Ready to get retained' || summaryRetention === 'Retained') {
           if (status !== 'Ready to get retained' && status !== 'Retained') return false;
+        } else if (summaryRetention === 'Extra Scholarship Required') {
+          if (!isExtraScholarshipNeeded(item)) return false;
         } else if (status !== summaryRetention) {
           return false;
         }
@@ -1153,7 +1174,7 @@ export default function App() {
         else if (probVal === 'Medium') g.notRetainedMed += 1;
         else if (probVal === 'High') g.notRetainedHigh += 1;
         else g.notRetainedUnset += 1;
-      } else if (status === 'Extra Scholarship Required') {
+      } else if (status === 'Extra Scholarship Required' || isExtraScholarshipNeeded(item)) {
         g.extraReq += 1;
       } else {
         g.pending += 1;
@@ -1333,7 +1354,7 @@ export default function App() {
         const isRetained = isValidNewRegNo(item.newRegno);
         if (isRetained) g.retained += 1;
         else if (status === 'Not Retained') g.notRetained += 1;
-        else if (status === 'Extra Scholarship Required') g.extraReq += 1;
+        else if (status === 'Extra Scholarship Required' || isExtraScholarshipNeeded(item)) g.extraReq += 1;
         else g.pending += 1;
 
         if (item.whatsappIntimation) g.whatsapp += 1;
@@ -1545,6 +1566,19 @@ export default function App() {
             updated.extraScholarshipStatus = '';
             updated.rahStatus = '';
             updated.finalScholarship = row.scholarship || '';
+          }
+        }
+
+        if (key === 'proposedScholarship') {
+          const valStr = String(value || '').trim().toLowerCase();
+          if (valStr && valStr !== 'no demand' && valStr !== '0%' && valStr !== '0% on tuition fees' && valStr !== 'flat 0' && valStr !== 'none' && valStr !== '0') {
+            if (!updated.finalRetentionStatus || updated.finalRetentionStatus === 'Pending' || updated.finalRetentionStatus === 'Undecided') {
+              updated.finalRetentionStatus = 'Extra Scholarship Required';
+            }
+          } else if (!valStr || valStr === 'no demand' || valStr === '0%' || valStr === 'none') {
+            if (updated.finalRetentionStatus === 'Extra Scholarship Required') {
+              updated.finalRetentionStatus = '';
+            }
           }
         }
 
@@ -2981,18 +3015,19 @@ export default function App() {
                   const label = colKey === 'studentName' ? 'Student Name (STG)'
                     : colKey === 'regNo' ? 'Reg No'
                     : colKey === 'scholarship' ? 'Scholarship Tier'
+                    : colKey === 'mentor' ? 'Mentor Name'
                     : colKey === 'mentorMailid' ? 'Mentor MailID'
-                    : colKey === 'pwid' ? 'PWID'
-                    : colKey === 'whatsappIntimation' ? 'WhatsApp Sent'
+                    : colKey === 'pwid' ? 'Mentor ID'
+                    : colKey === 'whatsappIntimation' ? 'Parent Intimation ( Whatsapp )'
                     : colKey === 'ptmStatus' ? 'PTM Status'
-                    : colKey === 'parentRemarks' ? 'Parent Remarks'
-                    : colKey === 'paymentDate' ? 'Followup Date / Propose re-enrolled date'
-                    : colKey === 'discontinueReason' ? 'Discontinue Reason'
-                    : colKey === 'retentionProbability' ? 'Retention Prob.'
+                    : colKey === 'parentRemarks' ? 'Parent Remark by Mentor'
+                    : colKey === 'paymentDate' ? 'Follow up Date/ Proposed Re-ENrolled date'
+                    : colKey === 'discontinueReason' ? 'Reason Dropout'
+                    : colKey === 'retentionProbability' ? 'Probability of Retention'
                     : colKey === 'proposedScholarship' ? 'Extra Scholarship Demand by Parents'
                     : colKey === 'extraScholarshipStatus' ? 'Extra Scholarship Status'
                     : colKey === 'rahStatus' ? 'Final Approval (RAH)'
-                    : colKey === 'finalRetentionStatus' ? 'Final Retention'
+                    : colKey === 'finalRetentionStatus' ? 'Reenrolled by Mentor'
                     : colKey === 'finalScholarship' ? 'Final Scholarship'
                     : colKey === 'counselorName' ? 'Counselor'
                     : colKey === 'counselorPwid' ? 'Counselor PWID'
@@ -3449,25 +3484,25 @@ export default function App() {
                   {visibleColumns.batchName && renderSortHeader('batchName', 'Batch Name', 'w-[110px]', 'text-stone-500')}
                   {visibleColumns.class && renderSortHeader('class', 'Class', 'w-[80px]', 'text-stone-500')}
                   {visibleColumns.scholarship && renderSortHeader('scholarship', 'Scholarship Tier', 'w-[180px]', 'text-stone-500')}
-                  {visibleColumns.mentor && renderSortHeader('mentor', 'Mentor', 'w-[130px]', 'text-stone-500')}
+                  {visibleColumns.mentor && renderSortHeader('mentor', 'Mentor Name', 'w-[130px]', 'text-stone-500')}
+                  {visibleColumns.pwid && renderSortHeader('pwid', 'Mentor ID', 'w-[100px]', 'text-stone-500')}
                   {visibleColumns.mentorMailid && renderSortHeader('mentorMailid', 'Mentor MailID', 'w-[160px]', 'text-stone-500')}
-                  {visibleColumns.pwid && renderSortHeader('pwid', 'PWID', 'w-[100px]', 'text-stone-500')}
                   
                   {/* WhatsApp checkbox header */}
-                  {visibleColumns.whatsappIntimation && renderSortHeader('whatsappIntimation', 'WhatsApp Sent', 'w-[130px]', 'text-stone-500 text-center')}
+                  {visibleColumns.whatsappIntimation && renderSortHeader('whatsappIntimation', 'Parent Intimation ( Whatsapp )', 'w-[130px]', 'text-stone-500 text-center')}
                   
                   {/* Key Retention process inputs */}
                   {visibleColumns.ptmStatus && renderSortHeader('ptmStatus', 'PTM Status', 'w-[150px]', 'text-[#5A7060] font-bold')}
-                  {visibleColumns.parentRemarks && renderSortHeader('parentRemarks', 'Parent Remarks', 'w-[280px]', 'text-[#5A7060] font-bold')}
-                  {visibleColumns.paymentDate && renderSortHeader('paymentDate', 'Followup Date / Propose re-enrolled date', 'w-[160px]', 'text-stone-500')}
-                  {visibleColumns.discontinueReason && renderSortHeader('discontinueReason', 'Discontinue Reason', 'w-[240px]', 'text-stone-500')}
-                  {visibleColumns.retentionProbability && renderSortHeader('retentionProbability', 'Retention Prob.', 'w-[150px]', 'text-[#5A7060] font-bold')}
+                  {visibleColumns.parentRemarks && renderSortHeader('parentRemarks', 'Parent Remark by Mentor', 'w-[280px]', 'text-[#5A7060] font-bold')}
+                  {visibleColumns.paymentDate && renderSortHeader('paymentDate', 'Follow up Date/ Proposed Re-ENrolled date', 'w-[160px]', 'text-stone-500')}
+                  {visibleColumns.discontinueReason && renderSortHeader('discontinueReason', 'Reason Dropout', 'w-[240px]', 'text-stone-500')}
+                  {visibleColumns.retentionProbability && renderSortHeader('retentionProbability', 'Probability of Retention', 'w-[150px]', 'text-[#5A7060] font-bold')}
+                  {visibleColumns.finalRetentionStatus && renderSortHeader('finalRetentionStatus', 'Reenrolled by Mentor', 'w-[180px]', 'text-stone-500')}
                   
                   {/* Proposal & Approvals */}
                   {visibleColumns.proposedScholarship && userRole !== 'Mentor' && renderSortHeader('proposedScholarship', 'Extra Scholarship Demand by Parents', 'w-[160px]', 'text-[#8C764D] font-bold')}
                   {visibleColumns.extraScholarshipStatus && userRole !== 'FH' && userRole !== 'Mentor' && renderSortHeader('extraScholarshipStatus', 'Extra Scholarship Status', 'w-[155px]', 'text-[#8C764D] font-bold')}
                   {visibleColumns.rahStatus && userRole !== 'FH' && userRole !== 'Mentor' && renderSortHeader('rahStatus', 'Final Approval (RAH)', 'w-[155px]', 'text-[#A25A38] font-bold')}
-                  {visibleColumns.finalRetentionStatus && renderSortHeader('finalRetentionStatus', 'Final Retention', 'w-[180px]', 'text-stone-500')}
                   {visibleColumns.finalScholarship && userRole !== 'Mentor' && renderSortHeader('finalScholarship', 'Final Scholarship', 'w-[140px]', 'text-stone-500')}
                   
                   {/* Counselors mapping */}
@@ -3596,11 +3631,11 @@ export default function App() {
                         {/* Scrollable: Mentor */}
                         {visibleColumns.mentor && <td className="p-3 font-semibold text-stone-700">{row.mentor}</td>}
 
-                        {/* Scrollable: Mentor MailID */}
-                        {visibleColumns.mentorMailid && <td className="p-3 text-stone-500 font-mono select-all truncate max-w-[140px]" title={row.mentorMailid}>{row.mentorMailid || 'N/A'}</td>}
-
                         {/* Scrollable: PWID */}
                         {visibleColumns.pwid && <td className="p-3 text-stone-500 font-mono">{row.pwid || 'N/A'}</td>}
+
+                        {/* Scrollable: Mentor MailID */}
+                        {visibleColumns.mentorMailid && <td className="p-3 text-stone-500 font-mono select-all truncate max-w-[140px]" title={row.mentorMailid}>{row.mentorMailid || 'N/A'}</td>}
 
                         {/* WhatsApp Check Cell (Highly interactive) */}
                         {visibleColumns.whatsappIntimation && (
@@ -3707,12 +3742,18 @@ export default function App() {
                         {visibleColumns.paymentDate && (
                           <td className="p-2">
                             {inlineEditingMode ? (
-                              <input 
-                                type="date"
-                                value={row.paymentDate}
+                              <select 
+                                value={row.paymentDate || ''}
                                 onChange={(e) => handleCellChange(row.id, 'paymentDate', e.target.value)}
-                                className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] text-xs px-2 py-1 border border-[#E3DEC3] rounded-lg font-medium focus:border-[#5A7060]"
-                              />
+                                className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium cursor-pointer focus:border-[#5A7060] text-stone-800"
+                              >
+                                <option value="">Select Option</option>
+                                <option value="till 15 July">till 15 July</option>
+                                <option value="16 July to 20 July">16 July to 20 July</option>
+                                <option value="20July -25 July">20July -25 July</option>
+                                <option value="26 to 31 july">26 to 31 july</option>
+                                <option value="aug">aug</option>
+                              </select>
                             ) : (
                               <span className="font-mono text-stone-600 font-medium">
                                 {row.paymentDate || 'Not declared'}
@@ -3743,14 +3784,14 @@ export default function App() {
                                       className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium cursor-pointer focus:border-[#5A7060] disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed text-stone-800"
                                     >
                                       <option value="">Select Reason</option>
-                                      <option value="academic concern">academic concern</option>
-                                      <option value="father transfer">father transfer</option>
-                                      <option value="health issue">health issue</option>
-                                      <option value="non acad issue">non acad issue</option>
-                                      <option value="School Timing Issue">School Timing Issue</option>
-                                      <option value="Transportation Issue">Transportation Issue</option>
-                                      <option value="Relocation Issue">Relocation Issue</option>
+                                      <option value="Stream Changes(ARTS/Commerce/Othres)">Stream Changes(ARTS/Commerce/Othres)</option>
                                       <option value="Financial Issue">Financial Issue</option>
+                                      <option value="School Timing Issue">School Timing Issue</option>
+                                      <option value="Academic Issue">Academic Issue</option>
+                                      <option value="Non Academic Issue">Non Academic Issue</option>
+                                      <option value="Transfer Case">Transfer Case</option>
+                                      <option value="Medical Issue">Medical Issue</option>
+                                      <option value="Transportation Issue">Transportation Issue</option>
                                       <option value="other">other (Write...)</option>
                                     </select>
                                     {!isStandardDiscontinueReason(row.discontinueReason) && (
@@ -3795,6 +3836,37 @@ export default function App() {
                                 {row.retentionProbability || 'Not Estimated'}
                               </span>
                             )}
+                          </td>
+                        )}
+
+                        {/* Final Retention Status by Mentor */}
+                        {visibleColumns.finalRetentionStatus && (
+                          <td className="p-2">
+                            {(() => {
+                              const isEditable = inlineEditingMode && canEditField('finalRetentionStatus', row);
+                              return isEditable ? (
+                                <select
+                                  value={row.finalRetentionStatus || ''}
+                                  onChange={(e) => handleCellChange(row.id, 'finalRetentionStatus', e.target.value)}
+                                  className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium cursor-pointer focus:border-[#5A7060]"
+                                >
+                                  <option value="">Select Status</option>
+                                  <option value="Ready to get retained">Ready to get retained</option>
+                                  <option value="Not Retained">Not Retained</option>
+                                  <option value="Extra Scholarship Required">Extra Scholarship Required</option>
+                                </select>
+                              ) : (
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-[10px] border ${
+                                  row.finalRetentionStatus === 'Ready to get retained' || row.finalRetentionStatus === 'Retained' ? 'bg-[#ECEFEA] text-[#425246] border-[#D1D9CD]' :
+                                  row.finalRetentionStatus === 'Not Retained' ? 'bg-[#FAF0E4] text-[#A25A38] border-[#F5DDD0]' :
+                                  row.finalRetentionStatus === 'Extra Scholarship Required' ? 'bg-[#E3EBF5] text-[#2C4A70] border-[#C5D5E6]' :
+                                  'bg-stone-100 text-stone-400 border-stone-200/50'
+                                }`}>
+                                  {!canEditField('finalRetentionStatus', row) && <Lock className="w-2.5 h-2.5 text-stone-455" title="Only Mentors/Central can modify retention status" />}
+                                  {row.finalRetentionStatus || 'Undecided'}
+                                </span>
+                              );
+                            })()}
                           </td>
                         )}
 
@@ -4009,37 +4081,6 @@ export default function App() {
                           </td>
                         )}
 
-                        {/* Final Retention Status by Mentor */}
-                        {visibleColumns.finalRetentionStatus && (
-                          <td className="p-2">
-                            {(() => {
-                              const isEditable = inlineEditingMode && canEditField('finalRetentionStatus', row);
-                              return isEditable ? (
-                                <select
-                                  value={row.finalRetentionStatus || ''}
-                                  onChange={(e) => handleCellChange(row.id, 'finalRetentionStatus', e.target.value)}
-                                  className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium cursor-pointer focus:border-[#5A7060]"
-                                >
-                                  <option value="">Select Status</option>
-                                  <option value="Ready to get retained">Ready to get retained</option>
-                                  <option value="Not Retained">Not Retained</option>
-                                  <option value="Extra Scholarship Required">Extra Scholarship Required</option>
-                                </select>
-                              ) : (
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-[10px] border ${
-                                  row.finalRetentionStatus === 'Ready to get retained' || row.finalRetentionStatus === 'Retained' ? 'bg-[#ECEFEA] text-[#425246] border-[#D1D9CD]' :
-                                  row.finalRetentionStatus === 'Not Retained' ? 'bg-[#FAF0E4] text-[#A25A38] border-[#F5DDD0]' :
-                                  row.finalRetentionStatus === 'Extra Scholarship Required' ? 'bg-[#E3EBF5] text-[#2C4A70] border-[#C5D5E6]' :
-                                  'bg-stone-100 text-stone-400 border-stone-200/50'
-                                }`}>
-                                  {!canEditField('finalRetentionStatus', row) && <Lock className="w-2.5 h-2.5 text-stone-455" title="Only Mentors/Central can modify retention status" />}
-                                  {row.finalRetentionStatus || 'Undecided'}
-                                </span>
-                              );
-                            })()}
-                          </td>
-                        )}
-
                         {/* Final Scholarship Column */}
                         {visibleColumns.finalScholarship && userRole !== 'Mentor' && (
                           <td className="p-2">
@@ -4182,6 +4223,7 @@ export default function App() {
                                   >
                                     <option value="">Select Status</option>
                                     <option value="Re-enrolled">Re-enrolled</option>
+                                    <option value="Retained">Retained</option>
                                     <option value="Not Retained - Directly connect once again with Mentor">Not Retained - Directly connect once again with Mentor</option>
                                     <option value="Other">Other (Add Remarks)</option>
                                   </select>
@@ -4199,7 +4241,7 @@ export default function App() {
                                 <div className="flex items-center gap-1.5">
                                   {inlineEditingMode && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Counselor or Central can edit Counselor Status" />}
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] border ${
-                                    row.counselorStatus === 'Re-enrolled' ? 'bg-[#ECEFEA] text-[#425246] border-[#D1D9CD]' :
+                                    row.counselorStatus === 'Re-enrolled' || row.counselorStatus === 'Retained' ? 'bg-[#ECEFEA] text-[#425246] border-[#D1D9CD]' :
                                     row.counselorStatus && row.counselorStatus.startsWith('Not Retained') ? 'bg-[#FAF0E4] text-[#A25A38] border-[#F5DDD0]' :
                                     row.counselorStatus ? 'bg-stone-100 text-stone-600 border-stone-200' : 'bg-transparent text-stone-400'
                                   }`}>
@@ -4260,6 +4302,122 @@ export default function App() {
       {/* Summary Dashboard View & Cuts */}
       {activeView === 'summary' && (
         <section className="px-6 py-5 space-y-6 flex-1 overflow-y-auto">
+          {/* Active Role Quota Status & Policies */}
+          <div className="bg-[#FDFBF9] border-2 border-[#E3DEC3] rounded-3xl p-5 shadow-sm">
+            <div className="flex justify-between items-center gap-4 border-b border-[#E3DEC3]/60 pb-4 mb-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <ShieldCheck className="w-5 h-5 text-[#5A7060]" />
+                  <h2 className="font-serif font-bold text-[#2B3A2C] text-sm tracking-tight">Active User Role Quota Tracker</h2>
+                </div>
+                <p className="text-xs text-stone-500 font-semibold font-sans">
+                  Real-time tracking of approval quotas based on the current active email's mapped permissions.
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] bg-[#5A7060]/10 text-[#425246] font-bold px-2.5 py-1 rounded-xl">
+                  Mapped Role: {userRole}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Quota policy rules memo */}
+              <div className="bg-[#FAF8F5] p-4 rounded-2xl border border-[#E3DEC3] flex flex-col justify-between">
+                <div>
+                  <h3 className="text-[10px] font-extrabold text-stone-500 uppercase tracking-widest flex items-center gap-1.5 mb-2">
+                    <Percent className="w-3 h-3 text-[#5A7060]" /> Quota Policies
+                  </h3>
+                  <div className="space-y-2 text-[11px] text-stone-600 font-medium font-sans leading-relaxed">
+                    <p>
+                      ⚡ <strong className="text-stone-800 font-bold">Center Quota (3% cases):</strong> Capped at <strong className="text-stone-800 font-bold">3% of center student count</strong> as approved cases. Valid only for extra scholarship <strong className="text-[#324B37] font-bold">{"\u2264"} 10%</strong> (Tuition Fees).
+                    </p>
+                    <p>
+                      🌍 <strong className="text-stone-800 font-bold">Region Quota (1% cases):</strong> Capped at <strong className="text-stone-800 font-bold">1% of region student count</strong> as approved cases. Handles cases <strong className="text-[#6B5A3A] font-bold">&gt; 10%</strong> and all <strong className="text-[#6B5A3A] font-bold">Flat</strong> proposals (unlimited approval value).
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-[#E3DEC3]/60 flex items-center gap-2 text-[10px] font-bold text-[#A25A38] bg-[#FAF0E4] p-1.5 rounded-lg border border-[#F5DDD0]">
+                  <Info className="w-3.5 h-3.5 shrink-0" />
+                  <span>The system dynamically routes and monitors quotas in absolute case counts.</span>
+                </div>
+              </div>
+
+              {/* CH Quota Widget */}
+              <div className="bg-[#FAF8F5] p-4 rounded-2xl border border-[#E3DEC3] flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <h4 className="text-[11px] font-extrabold text-[#324B37] uppercase tracking-wider">CH Center Quota Status</h4>
+                    <span className="text-[10px] bg-[#ECEFEA] border border-[#D1D9CD] text-[#425246] font-bold px-1.5 py-0.5 rounded-full">3% case limit</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium mb-3 truncate" title={centerQuotaInfo.centerName}>
+                    Branch: <strong className="text-stone-800 font-bold">{centerQuotaInfo.centerName}</strong>
+                  </p>
+                  
+                  <div className="bg-[#E3DEC3]/40 rounded-xl p-3 border border-[#E3DEC3]/60 mb-3 space-y-1">
+                    <div className="flex justify-between text-xs font-bold text-stone-700">
+                      <span>Approved CH Cases:</span>
+                      <span className="text-stone-900">{centerQuotaInfo.used} case(s)</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-stone-500 font-semibold">
+                      <span>Center Max Cap:</span>
+                      <span>{centerQuotaInfo.allowedLimit} case(s) max</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center text-[11px] font-bold text-stone-600 mb-1">
+                    <span>Quota Spent: {centerQuotaInfo.percentUsed}%</span>
+                    <span className="text-emerald-700">{centerQuotaInfo.remaining} case(s) remaining</span>
+                  </div>
+                  <div className="w-full bg-[#E5DFD0] rounded-full h-2 overflow-hidden border border-stone-200">
+                    <div 
+                      className="bg-[#5A7060] h-full rounded-full transition-all duration-500"
+                      style={{ width: `${centerQuotaInfo.percentUsed}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* RAH Quota Widget */}
+              <div className="bg-[#FAF8F5] p-4 rounded-2xl border border-[#E3DEC3] flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <h4 className="text-[11px] font-extrabold text-[#6B5A3A] uppercase tracking-wider">RAH Region Quota Status</h4>
+                    <span className="text-[10px] bg-[#FBF5EC] border border-[#ECE0CE] text-[#8C764D] font-bold px-1.5 py-0.5 rounded-full">1% case limit</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium mb-3 truncate" title={regionQuotaInfo.regionName}>
+                    Territory: <strong className="text-stone-800 font-bold">{regionQuotaInfo.regionName}</strong>
+                  </p>
+                  
+                  <div className="bg-[#E3DEC3]/40 rounded-xl p-3 border border-[#E3DEC3]/60 mb-3 space-y-1">
+                    <div className="flex justify-between text-xs font-bold text-stone-700">
+                      <span>Approved RAH Cases:</span>
+                      <span className="text-stone-900">{regionQuotaInfo.used} case(s)</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-stone-500 font-semibold">
+                      <span>Region Max Cap:</span>
+                      <span>{regionQuotaInfo.allowedLimit} case(s) max</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center text-[11px] font-bold text-stone-600 mb-1">
+                    <span>Quota Spent: {regionQuotaInfo.percentUsed}%</span>
+                    <span className="text-amber-800">{regionQuotaInfo.remaining} case(s) remaining</span>
+                  </div>
+                  <div className="w-full bg-[#E5DFD0] rounded-full h-2 overflow-hidden border border-stone-200">
+                    <div 
+                      className="bg-[#8C764D] h-full rounded-full transition-all duration-500"
+                      style={{ width: `${regionQuotaInfo.percentUsed}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           {/* Summary Interactive Filter Panel */}
           <div className="bg-[#FDFBF9] rounded-3xl border border-[#E3DEC3] shadow-sm p-5">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-[#E3DEC3]/60 pb-4 mb-4">
@@ -4456,11 +4614,11 @@ export default function App() {
               </div>
               <div className="mt-2.5">
                 <p className="text-2xl font-serif font-bold text-[#8C764D] tracking-tight">
-                  {filteredSummaryData.filter(s => s.finalRetentionStatus === 'Extra Scholarship Required').length}
+                  {filteredSummaryData.filter(isExtraScholarshipNeeded).length}
                 </p>
                 <p className="text-[10px] text-stone-500 mt-1 font-medium select-none">
                   {filteredSummaryData.length > 0 
-                    ? Math.round((filteredSummaryData.filter(s => s.finalRetentionStatus === 'Extra Scholarship Required').length / filteredSummaryData.length) * 100) 
+                    ? Math.round((filteredSummaryData.filter(isExtraScholarshipNeeded).length / filteredSummaryData.length) * 100) 
                     : 0}% of targeted pool
                 </p>
               </div>
@@ -5327,7 +5485,7 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-2.5">
                         <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Mentor Name</label>
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">1.) Mentor Name</label>
                           <input 
                             type="text" 
                             disabled={!canEditField('ptmStatus', activeStudent)}
@@ -5338,7 +5496,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Mentor PW ID</label>
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">2.) Mentor ID</label>
                           <input 
                             type="text" 
                             disabled={!canEditField('ptmStatus', activeStudent)}
@@ -5349,13 +5507,13 @@ export default function App() {
                         </div>
 
                         <div className="col-span-2">
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Mentor Email Address</label>
+                          <label className="block text-[10px] font-bold text-stone-400 uppercase">Mentor Email Address</label>
                           <input 
                             type="email" 
                             disabled={!canEditField('ptmStatus', activeStudent)}
                             value={activeStudent.mentorMailid || ''}
                             onChange={(e) => handleCellChange(activeStudent.id, 'mentorMailid', e.target.value)}
-                            className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white font-mono focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-50"
+                            className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white font-mono focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-50 text-stone-500"
                           />
                         </div>
 
@@ -5363,7 +5521,7 @@ export default function App() {
                         <div className="col-span-2 bg-[#F6F9F5] p-2.5 border border-[#D5E3CE] rounded-xl flex items-center justify-between">
                           <div className="flex flex-col">
                             <span className="text-[11px] font-bold text-[#3E5C38] flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#52A33A]"></span> Parent Intimation (WhatsApp)
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#52A33A]"></span> 3.) Parent Intimation ( Whatsapp )
                             </span>
                             <span className="text-[9.5px] text-stone-550 leading-normal">
                               WhatsApp details sent to parents.
@@ -5378,7 +5536,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">PTM Status</label>
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">4.) PTM Status</label>
                           <select
                             value={activeStudent.ptmStatus || ''}
                             onChange={(e) => handleCellChange(activeStudent.id, 'ptmStatus', e.target.value)}
@@ -5397,7 +5555,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Probability of Retention</label>
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">8.) Probability of Retention</label>
                           <select
                             value={activeStudent.retentionProbability || ''}
                             onChange={(e) => handleCellChange(activeStudent.id, 'retentionProbability', e.target.value as any)}
@@ -5411,7 +5569,7 @@ export default function App() {
                         </div>
 
                         <div className="col-span-2 space-y-1.5">
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Parent Remarks (By Mentor)</label>
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">5.) Parent Remark by Mentor</label>
                           <select
                             disabled={!canEditField('ptmStatus', activeStudent)}
                             value={isStandardRemark(activeStudent.parentRemarks) ? (activeStudent.parentRemarks || '') : 'Other'}
@@ -5445,17 +5603,23 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Followup Date / Propose re-enrolled date</label>
-                          <input 
-                            type="date" 
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">6.) Follow up Date/ Proposed Re-ENrolled date</label>
+                          <select 
                             value={activeStudent.paymentDate || ''}
                             onChange={(e) => handleCellChange(activeStudent.id, 'paymentDate', e.target.value)}
-                            className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white outline-hidden text-stone-800"
-                          />
+                            className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer text-stone-800"
+                          >
+                            <option value="">Select Option</option>
+                            <option value="till 15 July">till 15 July</option>
+                            <option value="16 July to 20 July">16 July to 20 July</option>
+                            <option value="20July -25 July">20July -25 July</option>
+                            <option value="26 to 31 july">26 to 31 july</option>
+                            <option value="aug">aug</option>
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-[10px] font-bold text-stone-500 uppercase">Reason if Dropout</label>
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">7.) Reason Dropout</label>
                           {(() => {
                             const isDropoutEnabled = isDropoutReasonEnabled(activeStudent.parentRemarks);
                             return (
@@ -5474,14 +5638,14 @@ export default function App() {
                                   className="mt-0.5 w-full text-[11px] font-bold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden cursor-pointer text-stone-800 disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
                                 >
                                   <option value="">Select Reason</option>
-                                  <option value="academic concern">academic concern</option>
-                                  <option value="father transfer">father transfer</option>
-                                  <option value="health issue">health issue</option>
-                                  <option value="non acad issue">non acad issue</option>
-                                  <option value="School Timing Issue">School Timing Issue</option>
-                                  <option value="Transportation Issue">Transportation Issue</option>
-                                  <option value="Relocation Issue">Relocation Issue</option>
+                                  <option value="Stream Changes(ARTS/Commerce/Othres)">Stream Changes(ARTS/Commerce/Othres)</option>
                                   <option value="Financial Issue">Financial Issue</option>
+                                  <option value="School Timing Issue">School Timing Issue</option>
+                                  <option value="Academic Issue">Academic Issue</option>
+                                  <option value="Non Academic Issue">Non Academic Issue</option>
+                                  <option value="Transfer Case">Transfer Case</option>
+                                  <option value="Medical Issue">Medical Issue</option>
+                                  <option value="Transportation Issue">Transportation Issue</option>
                                   <option value="other">other (Write...)</option>
                                 </select>
                                 {!isStandardDiscontinueReason(activeStudent.discontinueReason) && (
@@ -5502,7 +5666,7 @@ export default function App() {
                         {/* Final Status - Dropdown */}
                         <div className="col-span-2 pt-0.5">
                           <label className="block text-[10px] font-extrabold text-[#A25A38] uppercase tracking-wider flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#A25A38]"></span> Final Status (By Mentor)
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#A25A38]"></span> 9.) Reenrolled by Mentor
                           </label>
                           <select 
                             disabled={!canEditField('finalRetentionStatus', activeStudent)}
@@ -5812,6 +5976,7 @@ export default function App() {
                           >
                             <option value="">Select Status</option>
                             <option value="Re-enrolled">Re-enrolled</option>
+                            <option value="Retained">Retained</option>
                             <option value="Not Retained - Directly connect once again with Mentor">Not Retained - Directly connect once again with Mentor</option>
                             <option value="Other">Other (Add Remarks)</option>
                           </select>
