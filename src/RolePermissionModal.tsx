@@ -142,7 +142,7 @@ export default function RolePermissionModal({
       chMailid: newChMailid.trim().toLowerCase(),
       fhMailid: newFhMailid.trim().toLowerCase(),
       mentorId: newMentorId.trim().toLowerCase(),
-      counselorId: newCounselorId.trim().toLowerCase()
+      counselorId: newCounselorId.split(',').map(e => e.trim().toLowerCase()).filter(Boolean).join(',')
     };
 
     try {
@@ -224,7 +224,16 @@ export default function RolePermissionModal({
             : [replaceRoleScope];
 
         fieldsToCheck.forEach(field => {
-          if ((newRow[field] || '').trim().toLowerCase() === oldMail) {
+          const val = (newRow[field] || '').trim();
+          if (field === 'counselorId' && val.includes(',')) {
+            const list = val.split(',').map(e => e.trim());
+            const index = list.findIndex(e => e.toLowerCase() === oldMail);
+            if (index !== -1) {
+              list[index] = newMail;
+              newRow[field] = list.join(',');
+              changed = true;
+            }
+          } else if (val.toLowerCase() === oldMail) {
             (newRow[field] as string) = newMail;
             changed = true;
           }
@@ -291,7 +300,7 @@ export default function RolePermissionModal({
         chMailid: editingMapping.chMailid.trim().toLowerCase(),
         fhMailid: editingMapping.fhMailid.trim().toLowerCase(),
         mentorId: editingMapping.mentorId.trim().toLowerCase(),
-        counselorId: editingMapping.counselorId.trim().toLowerCase(),
+        counselorId: editingMapping.counselorId.split(',').map(e => e.trim().toLowerCase()).filter(Boolean).join(','),
       };
 
       if (index !== -1) {
@@ -762,13 +771,13 @@ export default function RolePermissionModal({
                   </div>
 
                   <div>
-                    <label className="block text-[9px] font-bold text-stone-500 mb-0.5">Counselor ID</label>
+                    <label className="block text-[9px] font-bold text-stone-500 mb-0.5">Counselor ID (Comma-separated)</label>
                     <input
-                      type="email"
+                      type="text"
                       value={newCounselorId}
                       onChange={(e) => setNewCounselorId(e.target.value)}
-                      placeholder="sumit@pw.live"
-                      className="w-full p-1.5 text-xs bg-white border border-[#E3DEC3] rounded-lg"
+                      placeholder="c1@pw.live, c2@pw.live"
+                      className="w-full p-1.5 text-xs bg-white border border-[#E3DEC3] rounded-lg font-medium"
                     />
                   </div>
                 </div>
@@ -984,7 +993,12 @@ export default function RolePermissionModal({
                           Matches {roleMappings.filter(r => {
                             const mail = replaceOldEmail.trim().toLowerCase();
                             if (replaceRoleScope === 'all') {
-                              return (r.rahMailid||'').toLowerCase() === mail || (r.rfhMailid||'').toLowerCase() === mail || (r.chMailid||'').toLowerCase() === mail || (r.fhMailid||'').toLowerCase() === mail || (r.mentorId||'').toLowerCase() === mail || (r.counselorId||'').toLowerCase() === mail;
+                              const counselors = (r.counselorId || '').split(',').map(e => e.trim().toLowerCase());
+                              return (r.rahMailid||'').toLowerCase() === mail || (r.rfhMailid||'').toLowerCase() === mail || (r.chMailid||'').toLowerCase() === mail || (r.fhMailid||'').toLowerCase() === mail || (r.mentorId||'').toLowerCase() === mail || counselors.includes(mail);
+                            }
+                            if (replaceRoleScope === 'counselorId') {
+                              const counselors = ((r.counselorId || '') as string).split(',').map(e => e.trim().toLowerCase());
+                              return counselors.includes(mail);
                             }
                             return ((r[replaceRoleScope as keyof UserRoleMapping] || '') as string).toLowerCase() === mail;
                           }).length} mapping row(s)
@@ -1155,11 +1169,24 @@ export default function RolePermissionModal({
                               ) : <span className="text-stone-300">-</span>}
                             </td>
                             {/* Counselor */}
-                            <td className="p-3 truncate max-w-[130px]" title={mapping.counselorId}>
+                            <td className="p-3">
                               {mapping.counselorId ? (
-                                <span className={`px-1.5 py-0.5 rounded font-medium ${activeEmail.toLowerCase().trim() === mapping.counselorId.toLowerCase().trim() ? 'bg-stone-100 text-stone-800 font-bold border border-stone-300' : 'bg-stone-50 text-stone-700 border border-stone-100'}`}>
-                                  {mapping.counselorId}
-                                </span>
+                                <div className="flex flex-wrap gap-1 max-w-[180px]">
+                                  {mapping.counselorId.split(',').map((email, idx) => {
+                                    const emailClean = email.trim();
+                                    if (!emailClean) return null;
+                                    const isCurrent = activeEmail.toLowerCase().trim() === emailClean.toLowerCase();
+                                    return (
+                                      <span 
+                                        key={idx} 
+                                        className={`px-1.5 py-0.5 rounded font-medium text-[10px] truncate max-w-[120px] inline-block ${isCurrent ? 'bg-stone-200 text-stone-800 font-bold border border-stone-400' : 'bg-stone-50 text-stone-700 border border-stone-100'}`}
+                                        title={emailClean}
+                                      >
+                                        {emailClean}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
                               ) : <span className="text-stone-300">-</span>}
                             </td>
                             {/* Actions */}
@@ -1325,13 +1352,13 @@ export default function RolePermissionModal({
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-stone-800 uppercase mb-1">Counselor ID</label>
+                    <label className="block text-[10px] font-bold text-stone-800 uppercase mb-1">Counselor IDs (Comma-separated)</label>
                     <input
                       type="text"
                       value={editingMapping.counselorId}
                       onChange={e => setEditingMapping({ ...editingMapping, counselorId: e.target.value })}
                       className="w-full p-2 bg-white border border-stone-200 rounded-xl font-medium focus:ring-1 focus:ring-stone-500 outline-hidden text-stone-800"
-                      placeholder="counselor@pw.live"
+                      placeholder="c1@pw.live, c2@pw.live"
                     />
                   </div>
                 </div>

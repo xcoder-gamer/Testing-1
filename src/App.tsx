@@ -235,7 +235,7 @@ export default function App() {
       (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
       (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
       (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
-      (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+      (mapping.counselorId && mapping.counselorId.split(',').some(e => e.trim().toLowerCase() === emailLower))
     );
   }, [activeEmail, userRolesList]);
 
@@ -264,7 +264,7 @@ export default function App() {
         (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
         (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
         (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
-        (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+        (mapping.counselorId && mapping.counselorId.split(',').some(e => e.trim().toLowerCase() === emailLower))
       );
 
       if (isAdmin || isMapped) {
@@ -303,7 +303,7 @@ export default function App() {
         (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
         (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
         (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
-        (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+        (mapping.counselorId && mapping.counselorId.split(',').some(e => e.trim().toLowerCase() === emailLower))
       );
 
       if (isAdmin || isMapped) {
@@ -346,7 +346,7 @@ export default function App() {
             (mapping.chMailid && mapping.chMailid.toLowerCase().trim() === emailLower) ||
             (mapping.fhMailid && mapping.fhMailid.toLowerCase().trim() === emailLower) ||
             (mapping.mentorId && mapping.mentorId.toLowerCase().trim() === emailLower) ||
-            (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower)
+            (mapping.counselorId && mapping.counselorId.split(',').some(e => e.trim().toLowerCase() === emailLower))
           );
 
           if (isAdmin || isMapped) {
@@ -438,7 +438,7 @@ export default function App() {
         foundMentor = mapping.mentorId;
         break;
       }
-      if (mapping.counselorId && mapping.counselorId.toLowerCase().trim() === emailLower) {
+      if (mapping.counselorId && mapping.counselorId.split(',').some(e => e.trim().toLowerCase() === emailLower)) {
         foundRole = 'Counselor';
         foundCenter = mapping.center;
         break;
@@ -1001,7 +1001,7 @@ export default function App() {
         const ch = (mapping.chMailid || '').toLowerCase().trim();
         const fh = (mapping.fhMailid || '').toLowerCase().trim();
         const mentor = (mapping.mentorId || '').toLowerCase().trim();
-        const counselor = (mapping.counselorId || '').toLowerCase().trim();
+        const counselorEmails = (mapping.counselorId || '').split(',').map(e => e.toLowerCase().trim());
 
         if (
           rah === currentEmail ||
@@ -1009,7 +1009,7 @@ export default function App() {
           ch === currentEmail ||
           fh === currentEmail ||
           mentor === currentEmail ||
-          counselor === currentEmail
+          counselorEmails.includes(currentEmail)
         ) {
           return true;
         }
@@ -1129,67 +1129,71 @@ export default function App() {
         const mapping = userRolesList.find(m => m.regno === item.regNo);
         val = mapping?.counselorId?.trim() || '';
       }
-      if (!val) {
-        val = 'Unassigned';
-      }
-      if (!groups[val]) {
-        groups[val] = { 
-          total: 0, 
-          retained: 0, 
-          notRetained: 0, 
-          notRetainedLow: 0,
-          notRetainedMed: 0,
-          notRetainedHigh: 0,
-          notRetainedUnset: 0,
-          extraReq: 0, 
-          pending: 0, 
-          whatsapp: 0, 
-          ptmDone: 0, 
-          highRisk: 0,
-          probLow: 0,
-          probMed: 0,
-          probHigh: 0,
-          probUnrated: 0,
-          reasonsCount: 0,
-          reasonsMap: {}
-        };
-      }
-      const g = groups[val];
-      g.total += 1;
-
-      // Retention Probability calculation across full student pool
-      const probVal = (item.retentionProbability || '').trim();
-      if (probVal === 'Low') g.probLow += 1;
-      else if (probVal === 'Medium') g.probMed += 1;
-      else if (probVal === 'High') g.probHigh += 1;
-      else g.probUnrated += 1;
       
-      const status = item.finalRetentionStatus || 'Pending';
-      const isRetained = isValidNewRegNo(item.newRegno);
-      if (isRetained) {
-        g.retained += 1;
-      } else if (status === 'Not Retained') {
-        g.notRetained += 1;
-        if (probVal === 'Low') g.notRetainedLow += 1;
-        else if (probVal === 'Medium') g.notRetainedMed += 1;
-        else if (probVal === 'High') g.notRetainedHigh += 1;
-        else g.notRetainedUnset += 1;
-      } else if (status === 'Extra Scholarship Required' || isExtraScholarshipNeeded(item)) {
-        g.extraReq += 1;
-      } else {
-        g.pending += 1;
-      }
+      const valKeys = (field === 'counselorName' && val.includes(','))
+        ? val.split(',').map(v => v.trim()).filter(Boolean)
+        : [val || 'Unassigned'];
 
-      // Dropout reasons tracking for non-retained students
-      const reason = (item.discontinueReason || '').trim();
-      if (reason && (!isRetained || status === 'Not Retained')) {
-        g.reasonsCount += 1;
-        g.reasonsMap[reason] = (g.reasonsMap[reason] || 0) + 1;
-      }
+      valKeys.forEach(valKey => {
+        if (!groups[valKey]) {
+          groups[valKey] = { 
+            total: 0, 
+            retained: 0, 
+            notRetained: 0, 
+            notRetainedLow: 0,
+            notRetainedMed: 0,
+            notRetainedHigh: 0,
+            notRetainedUnset: 0,
+            extraReq: 0, 
+            pending: 0, 
+            whatsapp: 0, 
+            ptmDone: 0, 
+            highRisk: 0,
+            probLow: 0,
+            probMed: 0,
+            probHigh: 0,
+            probUnrated: 0,
+            reasonsCount: 0,
+            reasonsMap: {}
+          };
+        }
+        const g = groups[valKey];
+        g.total += 1;
 
-      if (item.whatsappIntimation) g.whatsapp += 1;
-      if (item.ptmStatus && (item.ptmStatus.toLowerCase().includes('done') || item.ptmStatus.toLowerCase().includes('completed') || item.ptmStatus.toLowerCase().includes('conducted'))) g.ptmDone += 1;
-      if (probVal === 'Low') g.highRisk += 1;
+        // Retention Probability calculation across full student pool
+        const probVal = (item.retentionProbability || '').trim();
+        if (probVal === 'Low') g.probLow += 1;
+        else if (probVal === 'Medium') g.probMed += 1;
+        else if (probVal === 'High') g.probHigh += 1;
+        else g.probUnrated += 1;
+        
+        const status = item.finalRetentionStatus || 'Pending';
+        const isRetained = isValidNewRegNo(item.newRegno);
+        if (isRetained) {
+          g.retained += 1;
+        } else if (status === 'Not Retained') {
+          g.notRetained += 1;
+          if (probVal === 'Low') g.notRetainedLow += 1;
+          else if (probVal === 'Medium') g.notRetainedMed += 1;
+          else if (probVal === 'High') g.notRetainedHigh += 1;
+          else g.notRetainedUnset += 1;
+        } else if (status === 'Extra Scholarship Required' || isExtraScholarshipNeeded(item)) {
+          g.extraReq += 1;
+        } else {
+          g.pending += 1;
+        }
+
+        // Dropout reasons tracking for non-retained students
+        const reason = (item.discontinueReason || '').trim();
+        if (reason && (!isRetained || status === 'Not Retained')) {
+          g.reasonsCount += 1;
+          g.reasonsMap[reason] = (g.reasonsMap[reason] || 0) + 1;
+        }
+
+        if (item.whatsappIntimation) g.whatsapp += 1;
+        if (item.ptmStatus && (item.ptmStatus.toLowerCase().includes('done') || item.ptmStatus.toLowerCase().includes('completed') || item.ptmStatus.toLowerCase().includes('conducted'))) g.ptmDone += 1;
+        if (probVal === 'Low') g.highRisk += 1;
+      });
     });
 
     return Object.entries(groups).map(([key, stats]) => {
@@ -1330,10 +1334,20 @@ export default function App() {
         addUnique(tree[r].centers[c].buildings[b].fhs, mapping.fhMailid);
         addUnique(tree[r].centers[c].buildings[b].chs, mapping.chMailid);
         addUnique(tree[r].centers[c].buildings[b].classes[cl].mentors, mapping.mentorId);
-        addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, mapping.counselorId);
+        if (mapping.counselorId && mapping.counselorId.includes(',')) {
+          mapping.counselorId.split(',').forEach(cId => addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, cId));
+        } else {
+          addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, mapping.counselorId);
+        }
       }
       
-      if (item.counselorName) addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, item.counselorName);
+      if (item.counselorName) {
+        if (item.counselorName.includes(',')) {
+          item.counselorName.split(',').forEach(cId => addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, cId));
+        } else {
+          addUnique(tree[r].centers[c].buildings[b].classes[cl].counselors, item.counselorName);
+        }
+      }
       if (item.mentorMailid) addUnique(tree[r].centers[c].buildings[b].classes[cl].mentors, item.mentorMailid);
 
       const studentObj: AtRiskStudent = {
@@ -6516,7 +6530,7 @@ export default function App() {
                               m.chMailid?.toLowerCase() === emailSelected.toLowerCase() ||
                               m.fhMailid?.toLowerCase() === emailSelected.toLowerCase() ||
                               m.mentorId?.toLowerCase() === emailSelected.toLowerCase() ||
-                              m.counselorId?.toLowerCase() === emailSelected.toLowerCase()
+                              (m.counselorId && m.counselorId.split(',').some(e => e.trim().toLowerCase() === emailSelected.toLowerCase()))
                             );
 
                             if (mapping) {
@@ -6536,7 +6550,7 @@ export default function App() {
                                 mappedRole = 'FH';
                               } else if (mapping.mentorId?.toLowerCase() === emailSelected.toLowerCase()) {
                                 mappedRole = 'Mentor';
-                              } else if (mapping.counselorId?.toLowerCase() === emailSelected.toLowerCase()) {
+                              } else if (mapping.counselorId && mapping.counselorId.split(',').some(e => e.trim().toLowerCase() === emailSelected.toLowerCase())) {
                                 mappedRole = 'Counselor';
                               }
 
@@ -6552,13 +6566,17 @@ export default function App() {
                         >
                           <option value="" disabled>-- Select Profile --</option>
                           {userRolesList.map((mapping, mIdx) => {
+                            const counselorEmails = mapping.counselorId 
+                              ? mapping.counselorId.split(',').map(e => e.trim()) 
+                              : [];
+
                             const items = [
                               { email: mapping.rahMailid, role: 'RAH' },
                               { email: mapping.rfhMailid, role: 'RFH' },
                               { email: mapping.chMailid, role: 'CH' },
                               { email: mapping.fhMailid, role: 'FH' },
                               { email: mapping.mentorId, role: 'Mentor' },
-                              { email: mapping.counselorId, role: 'Counselor' },
+                              ...counselorEmails.map(e => ({ email: e, role: 'Counselor' as const })),
                             ].filter(i => i.email && i.email.trim() !== '');
 
                             return items.map((item, iIdx) => (
