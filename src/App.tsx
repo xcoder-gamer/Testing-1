@@ -808,6 +808,43 @@ export default function App() {
     return { name: fallbackName, mailId: rlsMailId };
   }, [userRolesList, data]);
 
+  // Automatically retrieve Mentor Mail ID and Mentor Name fallback based on UserRoleMapping (RLS)
+  const getFallbackMentorDetails = useCallback((studentRow: StudentScholarshipRow) => {
+    const mapping = userRolesList.find(m => m.regno === studentRow.regNo);
+    if (!mapping || !mapping.mentorId) {
+      return { name: '', mailId: '' };
+    }
+
+    const rlsMailId = mapping.mentorId.trim();
+    const cleanRlsMail = rlsMailId.toLowerCase();
+
+    // Try to find another student row that has this mentorMailid and has mentor name filled
+    const existingStudent = data.find(s => 
+      s.mentorMailid && 
+      s.mentorMailid.trim().toLowerCase() === cleanRlsMail && 
+      s.mentor
+    );
+
+    let fallbackName = '';
+    if (existingStudent) {
+      fallbackName = existingStudent.mentor;
+    } else {
+      // Capitalize the prefix of the mail ID as a beautiful default mentor name
+      fallbackName = rlsMailId.split(',')
+        .map(email => {
+          const prefix = email.split('@')[0].trim();
+          return prefix
+            .split('.')
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+        })
+        .filter(Boolean)
+        .join(', ');
+    }
+
+    return { name: fallbackName, mailId: rlsMailId };
+  }, [userRolesList, data]);
+
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCenter, setSelectedCenter] = useState('All');
@@ -1879,32 +1916,36 @@ export default function App() {
     return data.find(s => s.id === selectedStudentId) || null;
   }, [data, selectedStudentId]);
 
-  // Automatically prefill Counselor details from RLS mapping if empty when opening a student modal
+  // Automatically prefill Counselor and Mentor details from RLS mapping if empty when opening a student modal
   useEffect(() => {
     if (selectedStudentId) {
       const currentStudent = data.find(s => s.id === selectedStudentId);
       if (currentStudent) {
-        const fallback = getFallbackCounselorDetails(currentStudent);
-        if (fallback.mailId) {
-          const needsNameUpdate = !currentStudent.counselorName && fallback.name;
-          const needsPwidUpdate = !currentStudent.counselorPwid && fallback.mailId;
+        const fallbackCounselor = getFallbackCounselorDetails(currentStudent);
+        const fallbackMentor = getFallbackMentorDetails(currentStudent);
+        
+        const needsCounselorNameUpdate = !currentStudent.counselorName && fallbackCounselor.name;
+        const needsCounselorPwidUpdate = !currentStudent.counselorPwid && fallbackCounselor.mailId;
+        const needsMentorNameUpdate = !currentStudent.mentor && fallbackMentor.name;
+        const needsMentorMailidUpdate = !currentStudent.mentorMailid && fallbackMentor.mailId;
 
-          if (needsNameUpdate || needsPwidUpdate) {
-            const updatedStudent = {
-              ...currentStudent,
-              counselorName: currentStudent.counselorName || fallback.name,
-              counselorPwid: currentStudent.counselorPwid || fallback.mailId
-            };
+        if (needsCounselorNameUpdate || needsCounselorPwidUpdate || needsMentorNameUpdate || needsMentorMailidUpdate) {
+          const updatedStudent = {
+            ...currentStudent,
+            counselorName: currentStudent.counselorName || fallbackCounselor.name,
+            counselorPwid: currentStudent.counselorPwid || fallbackCounselor.mailId,
+            mentor: currentStudent.mentor || fallbackMentor.name,
+            mentorMailid: currentStudent.mentorMailid || fallbackMentor.mailId
+          };
 
-            // Update local state
-            setData(prev => prev.map(row => row.id === currentStudent.id ? updatedStudent : row));
-            // Save to Firestore asynchronously
-            saveStudentInFirestore(updatedStudent, currentStudent).catch(err => console.error("Auto prefill counselor error:", err));
-          }
+          // Update local state
+          setData(prev => prev.map(row => row.id === currentStudent.id ? updatedStudent : row));
+          // Save to Firestore asynchronously
+          saveStudentInFirestore(updatedStudent, currentStudent).catch(err => console.error("Auto prefill details error:", err));
         }
       }
     }
-  }, [selectedStudentId, getFallbackCounselorDetails]);
+  }, [selectedStudentId, getFallbackCounselorDetails, getFallbackMentorDetails]);
 
   // Dialog Add Form state
   const [newStudent, setNewStudent] = useState<Partial<StudentScholarshipRow>>({
@@ -2177,9 +2218,10 @@ export default function App() {
     headers.push('Counselor Name', 'Counselor Mail ID', 'New Regno', 'Counselor Status');
 
     const rows = filteredData.map(row => {
+      const fallbackMentor = getFallbackMentorDetails(row);
       const line = [
         row.region, row.center, row.building, row.studentName, row.regNo, row.batchName, row.class, row.scholarship,
-        row.mentor, row.mentorMailid, row.pwid, row.whatsappIntimation ? 'TRUE' : 'FALSE', row.ptmStatus, row.parentRemarks,
+        row.mentor || fallbackMentor.name, row.mentorMailid || fallbackMentor.mailId, row.pwid, row.whatsappIntimation ? 'TRUE' : 'FALSE', row.ptmStatus, row.parentRemarks,
         row.paymentDate, row.discontinueReason, row.retentionProbability
       ];
       if (userRole !== 'Mentor') {
@@ -3713,13 +3755,21 @@ export default function App() {
                         )}
 
                         {/* Scrollable: Mentor */}
-                        {visibleColumns.mentor && <td className="p-3 font-semibold text-stone-700">{row.mentor}</td>}
+                        {visibleColumns.mentor && (
+                          <td className="p-3 font-semibold text-stone-700">
+                            {row.mentor || getFallbackMentorDetails(row).name || '-'}
+                          </td>
+                        )}
 
                         {/* Scrollable: PWID */}
                         {visibleColumns.pwid && <td className="p-3 text-stone-500 font-mono">{row.pwid || 'N/A'}</td>}
 
                         {/* Scrollable: Mentor MailID */}
-                        {visibleColumns.mentorMailid && <td className="p-3 text-stone-500 font-mono select-all truncate max-w-[140px]" title={row.mentorMailid}>{row.mentorMailid || 'N/A'}</td>}
+                        {visibleColumns.mentorMailid && (
+                          <td className="p-3 text-stone-500 font-mono select-all truncate max-w-[140px]" title={row.mentorMailid || getFallbackMentorDetails(row).mailId}>
+                            {row.mentorMailid || getFallbackMentorDetails(row).mailId || '-'}
+                          </td>
+                        )}
 
                         {/* WhatsApp Check Cell (Highly interactive) */}
                         {visibleColumns.whatsappIntimation && (
@@ -5119,7 +5169,15 @@ export default function App() {
                           Owner & Counselor
                         </div>
                         <div className="text-[11px] font-semibold text-stone-800 flex flex-col gap-1">
-                          <div><span className="text-stone-400">Mentor:</span> <span className="text-stone-700 font-mono text-[10px]">{selectedPerspectiveStudent.mentor || 'Unassigned'}</span></div>
+                          {(() => {
+                            const fallbackMentor = getFallbackMentorDetails(selectedPerspectiveStudent);
+                            return (
+                              <>
+                                <div><span className="text-stone-400">Mentor Name:</span> <span className="text-stone-705 select-all font-bold text-[11px]">{selectedPerspectiveStudent.mentor || fallbackMentor.name || 'Unassigned'}</span></div>
+                                <div><span className="text-stone-400">Mentor Mail ID:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{selectedPerspectiveStudent.mentorMailid || fallbackMentor.mailId || 'Unassigned'}</span></div>
+                              </>
+                            );
+                          })()}
                           {(() => {
                             const fallback = getFallbackCounselorDetails(selectedPerspectiveStudent);
                             return (
