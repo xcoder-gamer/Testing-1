@@ -1092,7 +1092,7 @@ export default function RolePermissionModal({
                         <th className="p-3">CH Mailid</th>
                         <th className="p-3">FH MailId</th>
                         <th className="p-3">Mentor ID</th>
-                        <th className="p-3">Counselor ID</th>
+                        <th className="p-3">Counselor Mail ID</th>
                         <th className="p-3 text-center w-12 sticky right-0 bg-[#FAF8F5] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">Actions</th>
                       </tr>
                     </thead>

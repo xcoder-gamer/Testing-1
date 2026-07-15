@@ -771,6 +771,43 @@ export default function App() {
     return false;
   }, [userRole, isMoveToRAH]);
 
+  // Automatically retrieve Counselor Mail ID and Counselor Name fallback based on UserRoleMapping (RLS)
+  const getFallbackCounselorDetails = useCallback((studentRow: StudentScholarshipRow) => {
+    const mapping = userRolesList.find(m => m.regno === studentRow.regNo);
+    if (!mapping || !mapping.counselorId) {
+      return { name: '', mailId: '' };
+    }
+
+    const rlsMailId = mapping.counselorId.trim();
+    const cleanRlsMail = rlsMailId.toLowerCase();
+
+    // Try to find another student row that has this counselorPwid and has counselorName filled
+    const existingStudent = data.find(s => 
+      s.counselorPwid && 
+      s.counselorPwid.trim().toLowerCase() === cleanRlsMail && 
+      s.counselorName
+    );
+
+    let fallbackName = '';
+    if (existingStudent) {
+      fallbackName = existingStudent.counselorName;
+    } else {
+      // Capitalize the prefix of the mail ID as a beautiful default counselor name
+      fallbackName = rlsMailId.split(',')
+        .map(email => {
+          const prefix = email.split('@')[0].trim();
+          return prefix
+            .split('.')
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+        })
+        .filter(Boolean)
+        .join(', ');
+    }
+
+    return { name: fallbackName, mailId: rlsMailId };
+  }, [userRolesList, data]);
+
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCenter, setSelectedCenter] = useState('All');
@@ -1842,6 +1879,33 @@ export default function App() {
     return data.find(s => s.id === selectedStudentId) || null;
   }, [data, selectedStudentId]);
 
+  // Automatically prefill Counselor details from RLS mapping if empty when opening a student modal
+  useEffect(() => {
+    if (selectedStudentId) {
+      const currentStudent = data.find(s => s.id === selectedStudentId);
+      if (currentStudent) {
+        const fallback = getFallbackCounselorDetails(currentStudent);
+        if (fallback.mailId) {
+          const needsNameUpdate = !currentStudent.counselorName && fallback.name;
+          const needsPwidUpdate = !currentStudent.counselorPwid && fallback.mailId;
+
+          if (needsNameUpdate || needsPwidUpdate) {
+            const updatedStudent = {
+              ...currentStudent,
+              counselorName: currentStudent.counselorName || fallback.name,
+              counselorPwid: currentStudent.counselorPwid || fallback.mailId
+            };
+
+            // Update local state
+            setData(prev => prev.map(row => row.id === currentStudent.id ? updatedStudent : row));
+            // Save to Firestore asynchronously
+            saveStudentInFirestore(updatedStudent, currentStudent).catch(err => console.error("Auto prefill counselor error:", err));
+          }
+        }
+      }
+    }
+  }, [selectedStudentId, getFallbackCounselorDetails]);
+
   // Dialog Add Form state
   const [newStudent, setNewStudent] = useState<Partial<StudentScholarshipRow>>({
     region: 'PB + J&K',
@@ -2110,7 +2174,7 @@ export default function App() {
     if (userRole !== 'Mentor') {
       headers.push('Final Scholarship');
     }
-    headers.push('Counselor Name', 'Counselor PWID', 'New Regno', 'Counselor Status');
+    headers.push('Counselor Name', 'Counselor Mail ID', 'New Regno', 'Counselor Status');
 
     const rows = filteredData.map(row => {
       const line = [
@@ -2128,7 +2192,13 @@ export default function App() {
       if (userRole !== 'Mentor') {
         line.push(row.finalScholarship);
       }
-      line.push(row.counselorName, row.counselorPwid, row.newRegno, row.counselorStatus || '');
+      const fallback = getFallbackCounselorDetails(row);
+      line.push(
+        row.counselorName || fallback.name, 
+        row.counselorPwid || fallback.mailId, 
+        row.newRegno, 
+        row.counselorStatus || ''
+      );
       return line;
     });
 
@@ -3043,8 +3113,8 @@ export default function App() {
                     : colKey === 'rahStatus' ? 'Final Approval (RAH)'
                     : colKey === 'finalRetentionStatus' ? 'Reenrolled by Mentor'
                     : colKey === 'finalScholarship' ? 'Final Scholarship'
-                    : colKey === 'counselorName' ? 'Counselor'
-                    : colKey === 'counselorPwid' ? 'Counselor PWID'
+                    : colKey === 'counselorName' ? 'Counselor Name'
+                    : colKey === 'counselorPwid' ? 'Counselor Mail ID'
                     : colKey === 'newRegno' ? 'New Regno'
                     : colKey === 'counselorStatus' ? 'Counselor Status'
                     : colKey.replace(/([A-Z])/g, ' / $1');
@@ -3520,8 +3590,8 @@ export default function App() {
                   {visibleColumns.finalScholarship && userRole !== 'Mentor' && renderSortHeader('finalScholarship', 'Final Scholarship', 'w-[140px]', 'text-stone-500')}
                   
                   {/* Counselors mapping */}
-                  {visibleColumns.counselorName && renderSortHeader('counselorName', 'Counselor', 'w-[140px]', 'text-stone-500')}
-                  {visibleColumns.counselorPwid && renderSortHeader('counselorPwid', 'Counselor PWID', 'w-[120px]', 'text-stone-500')}
+                  {visibleColumns.counselorName && renderSortHeader('counselorName', 'Counselor Name', 'w-[140px]', 'text-stone-500')}
+                  {visibleColumns.counselorPwid && renderSortHeader('counselorPwid', 'Counselor Mail ID', 'w-[120px]', 'text-stone-500')}
                   {visibleColumns.newRegno && renderSortHeader('newRegno', 'New Regno', 'w-[110px]', 'text-stone-500')}
                   {visibleColumns.counselorStatus && renderSortHeader('counselorStatus', 'Counselor Status', 'w-[180px]', 'text-stone-500')}
 
@@ -4129,10 +4199,11 @@ export default function App() {
                           <td className="p-2">
                             {(() => {
                               const isEditable = inlineEditingMode && canEditField('counselorName', row);
+                              const fallback = getFallbackCounselorDetails(row);
                               return isEditable ? (
                                 <input 
                                   type="text"
-                                  value={row.counselorName}
+                                  value={row.counselorName || fallback.name}
                                   onChange={(e) => handleCellChange(row.id, 'counselorName', e.target.value)}
                                   placeholder="Counselor"
                                   className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-medium focus:border-[#5A7060]"
@@ -4140,30 +4211,35 @@ export default function App() {
                               ) : (
                                 <div className="flex items-center gap-1.5">
                                   {inlineEditingMode && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Counselor or Central can edit Counselor Name" />}
-                                  <span className="text-stone-650 text-xs truncate block max-w-[130px]">{row.counselorName || '-'}</span>
+                                  <span className="text-stone-650 text-xs truncate block max-w-[130px]" title={row.counselorName || fallback.name || 'Unassigned'}>
+                                    {row.counselorName || fallback.name || '-'}
+                                  </span>
                                 </div>
                               );
                             })()}
                           </td>
                         )}
-
-                        {/* Counselor PWID */}
+ 
+                        {/* Counselor Mail ID */}
                         {visibleColumns.counselorPwid && (
                           <td className="p-2">
                             {(() => {
                               const isEditable = inlineEditingMode && canEditField('counselorPwid', row);
+                              const fallback = getFallbackCounselorDetails(row);
                               return isEditable ? (
                                 <input 
                                   type="text"
-                                  value={row.counselorPwid}
+                                  value={row.counselorPwid || fallback.mailId}
                                   onChange={(e) => handleCellChange(row.id, 'counselorPwid', e.target.value)}
-                                  placeholder="PWID"
+                                  placeholder="Mail ID"
                                   className="w-full bg-[#FAF8F5] hover:bg-[#F2EDDF] focus:bg-white text-xs px-2 py-1.5 border border-[#E3DEC3] rounded-lg font-mono focus:border-[#5A7060]"
                                 />
                               ) : (
                                 <div className="flex items-center gap-1.5">
-                                  {inlineEditingMode && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Counselor or Central can edit Counselor PWID" />}
-                                  <span className="text-stone-500 font-mono text-xs">{row.counselorPwid || '-'}</span>
+                                  {inlineEditingMode && <Lock className="w-3 h-3 text-stone-400 shrink-0" title="Only Counselor or Central can edit Counselor Mail ID" />}
+                                  <span className="text-stone-500 font-mono text-xs truncate block max-w-[120px]" title={row.counselorPwid || fallback.mailId || 'Unassigned'}>
+                                    {row.counselorPwid || fallback.mailId || '-'}
+                                  </span>
                                 </div>
                               );
                             })()}
@@ -5042,9 +5118,17 @@ export default function App() {
                         <div className="text-[9px] font-extrabold uppercase tracking-wide text-stone-500 mb-1">
                           Owner & Counselor
                         </div>
-                        <div className="text-[11px] font-semibold text-stone-800 flex flex-col gap-0.5">
-                          <div><span className="text-stone-400">Mentor:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{selectedPerspectiveStudent.mentor || 'Unassigned'}</span></div>
-                          <div><span className="text-stone-400">Counselor:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{selectedPerspectiveStudent.counselorName || 'Unassigned'}</span></div>
+                        <div className="text-[11px] font-semibold text-stone-800 flex flex-col gap-1">
+                          <div><span className="text-stone-400">Mentor:</span> <span className="text-stone-700 font-mono text-[10px]">{selectedPerspectiveStudent.mentor || 'Unassigned'}</span></div>
+                          {(() => {
+                            const fallback = getFallbackCounselorDetails(selectedPerspectiveStudent);
+                            return (
+                              <>
+                                <div><span className="text-stone-400">Counselor Name:</span> <span className="text-stone-705 select-all font-bold text-[11px]">{selectedPerspectiveStudent.counselorName || fallback.name || 'Unassigned'}</span></div>
+                                <div><span className="text-stone-400">Counselor Mail ID:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{selectedPerspectiveStudent.counselorPwid || fallback.mailId || 'Unassigned'}</span></div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -5931,14 +6015,14 @@ export default function App() {
 
                         <div>
                           <div className="flex items-center justify-between">
-                            <label className="block text-[10px] font-bold text-stone-500 uppercase">Counselor PW ID</label>
+                            <label className="block text-[10px] font-bold text-stone-500 uppercase">Counselor Mail ID</label>
                           </div>
                           <input 
                             type="text" 
                             disabled={!canEditField('counselorPwid', activeStudent)}
                             value={activeStudent.counselorPwid || ''}
                             onChange={(e) => handleCellChange(activeStudent.id, 'counselorPwid', e.target.value)}
-                            placeholder="Counselor PWID"
+                            placeholder="Counselor Mail ID"
                             className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white font-mono focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-stone-50 disabled:text-stone-400"
                           />
                         </div>
