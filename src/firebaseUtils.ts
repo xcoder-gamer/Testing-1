@@ -39,8 +39,30 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errStr = error instanceof Error ? error.message : String(error);
+  
+  if (typeof window !== 'undefined') {
+    // Check if it's a quota exceeded, resource exhausted, permission denied, or connection issue
+    const isQuota = errStr.includes('quota') || 
+                    errStr.includes('Quota') || 
+                    errStr.includes('resource-exhausted') || 
+                    errStr.includes('RESOURCE_EXHAUSTED') ||
+                    errStr.includes('exceeded') ||
+                    errStr.includes('limit');
+                    
+    console.warn("Firestore error encountered: ", errStr);
+    try {
+      localStorage.setItem('pw_scholarship_offline_mode', 'true');
+      if (isQuota) {
+        localStorage.setItem('pw_scholarship_quota_exceeded_detected', 'true');
+      }
+    } catch (e) {
+      console.error("Failed to write offline fallback flags to localStorage", e);
+    }
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errStr,
     authInfo: {
       userId: null,
       email: null,
@@ -71,6 +93,19 @@ export async function testFirestoreConnection() {
 
 // Fetch all students. If none exist in Firestore, return empty list (no auto seeding)
 export async function getStudentsFromFirestore(): Promise<StudentScholarshipRow[]> {
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Loading students from browser Local Storage...");
+    const saved = localStorage.getItem('pw_scholarship_data_2026');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse local storage students:", e);
+      }
+    }
+    return [];
+  }
+
   const path = 'classes';
   try {
     const q = collection(db, path);
@@ -78,6 +113,10 @@ export async function getStudentsFromFirestore(): Promise<StudentScholarshipRow[
     
     if (snapshot.empty) {
       console.log("No class records in Firestore.");
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pw_scholarship_data_initialized', 'true');
+        localStorage.setItem('pw_scholarship_data_2026', JSON.stringify([]));
+      }
       return [];
     }
 
@@ -103,9 +142,27 @@ export async function getStudentsFromFirestore(): Promise<StudentScholarshipRow[
         });
       }
     });
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pw_scholarship_data_initialized', 'true');
+      localStorage.setItem('pw_scholarship_data_2026', JSON.stringify(students));
+    }
     return students;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.error("Failed to fetch students from Firestore, falling back to Local Storage.", error);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pw_scholarship_offline_mode', 'true');
+      const errStr = error instanceof Error ? error.message : String(error);
+      if (errStr.includes('quota') || errStr.includes('resource-exhausted')) {
+        localStorage.setItem('pw_scholarship_quota_exceeded_detected', 'true');
+      }
+      const saved = localStorage.getItem('pw_scholarship_data_2026');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+    }
     return [];
   }
 }
@@ -147,6 +204,19 @@ async function seedInitialStudents() {
 
 // Fetch logs from Firestore
 export async function getLogsFromFirestore(): Promise<ActivityLog[]> {
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Loading logs from browser Local Storage...");
+    const saved = localStorage.getItem('pw_scholarship_logs_2026');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse local storage logs:", e);
+      }
+    }
+    return [];
+  }
+
   const path = 'logs';
   try {
     const q = collection(db, path);
@@ -157,15 +227,50 @@ export async function getLogsFromFirestore(): Promise<ActivityLog[]> {
     });
     
     // Sort descending by id (timestamp-based)
-    return logs.sort((a, b) => b.id.localeCompare(a.id));
+    const sorted = logs.sort((a, b) => b.id.localeCompare(a.id));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pw_scholarship_logs_2026', JSON.stringify(sorted));
+    }
+    return sorted;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.error("Failed to fetch logs from Firestore, falling back to Local Storage.", error);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pw_scholarship_offline_mode', 'true');
+      const saved = localStorage.getItem('pw_scholarship_logs_2026');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+    }
     return [];
   }
 }
 
 // Add or update student record in Firestore
 export async function saveStudentInFirestore(student: StudentScholarshipRow, oldStudent?: StudentScholarshipRow): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('pw_scholarship_data_2026');
+    let localData: StudentScholarshipRow[] = [];
+    if (saved) {
+      try { localData = JSON.parse(saved); } catch (e) {}
+    }
+    const idx = localData.findIndex(s => s.id === student.id);
+    if (idx !== -1) {
+      localData[idx] = student;
+    } else {
+      localData.push(student);
+    }
+    localStorage.setItem('pw_scholarship_data_2026', JSON.stringify(localData));
+    localStorage.setItem('pw_scholarship_data_initialized', 'true');
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Saved student locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const key = `${student.region}__${student.center}__${student.building}__${student.class}`;
   const docId = key.replace(/[\/\s.#$\[\]]/g, '_');
   const path = `classes/${docId}`;
@@ -207,6 +312,17 @@ export async function saveStudentInFirestore(student: StudentScholarshipRow, old
 
 // Bulk update multiple students in Firestore
 export async function saveBulkStudentsInFirestore(students: StudentScholarshipRow[]): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('pw_scholarship_data_2026', JSON.stringify(students));
+    localStorage.setItem('pw_scholarship_data_initialized', 'true');
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Bulk saved students locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const path = 'classes';
   try {
     const batch = writeBatch(db);
@@ -240,6 +356,22 @@ export async function saveBulkStudentsInFirestore(students: StudentScholarshipRo
 
 // Add an activity log to Firestore
 export async function addLogToFirestore(log: ActivityLog): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('pw_scholarship_logs_2026');
+    let localLogs: ActivityLog[] = [];
+    if (saved) {
+      try { localLogs = JSON.parse(saved); } catch (e) {}
+    }
+    localLogs.unshift(log);
+    localStorage.setItem('pw_scholarship_logs_2026', JSON.stringify(localLogs));
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Logged locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const path = `logs/${log.id}`;
   try {
     // Sanitize log to remove undefined values that Firestore doesn't support
@@ -254,6 +386,23 @@ export async function addLogToFirestore(log: ActivityLog): Promise<void> {
 
 // Delete student in Firestore
 export async function deleteStudentInFirestore(student: StudentScholarshipRow): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('pw_scholarship_data_2026');
+    if (saved) {
+      try {
+        const localData: StudentScholarshipRow[] = JSON.parse(saved);
+        const filtered = localData.filter(s => s.id !== student.id);
+        localStorage.setItem('pw_scholarship_data_2026', JSON.stringify(filtered));
+      } catch (e) {}
+    }
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Student deleted locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const key = `${student.region}__${student.center}__${student.building}__${student.class}`;
   const docId = key.replace(/[\/\s.#$\[\]]/g, '_');
   const path = `classes/${docId}/${student.regNo}`;
@@ -272,6 +421,17 @@ export async function deleteStudentInFirestore(student: StudentScholarshipRow): 
 
 // Reset all students back to initial data in Firestore
 export async function resetAllStudentsInFirestore(): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('pw_scholarship_data_2026', JSON.stringify(INITIAL_SCHOLARSHIP_DATA));
+    localStorage.setItem('pw_scholarship_data_initialized', 'true');
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Reset database locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const path = 'classes';
   try {
     const snapshot = await getDocs(collection(db, 'classes'));
@@ -289,6 +449,16 @@ export async function resetAllStudentsInFirestore(): Promise<void> {
 
 // Clear all logs in Firestore
 export async function clearLogsInFirestore(): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('pw_scholarship_logs_2026');
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Logs cleared locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const path = 'logs';
   try {
     const snapshot = await getDocs(collection(db, 'logs'));
@@ -304,6 +474,19 @@ export async function clearLogsInFirestore(): Promise<void> {
 
 // Fetch all user roles from Firestore
 export async function getUserRolesFromFirestore(): Promise<UserRoleMapping[]> {
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: Loading user roles from browser Local Storage...");
+    const saved = localStorage.getItem('pw_scholarship_roles_2026');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse local storage roles:", e);
+      }
+    }
+    return [];
+  }
+
   const path = 'settings/role_permissions';
   try {
     const docRef = doc(db, 'settings', 'role_permissions');
@@ -311,18 +494,41 @@ export async function getUserRolesFromFirestore(): Promise<UserRoleMapping[]> {
     if (docSnap.exists()) {
       const data = docSnap.data();
       if (Array.isArray(data.mappings)) {
-        return data.mappings as UserRoleMapping[];
+        const roles = data.mappings as UserRoleMapping[];
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('pw_scholarship_roles_2026', JSON.stringify(roles));
+        }
+        return roles;
       }
     }
     return [];
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.error("Failed to fetch user roles from Firestore, falling back to Local Storage.", error);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pw_scholarship_offline_mode', 'true');
+      const saved = localStorage.getItem('pw_scholarship_roles_2026');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+    }
     return [];
   }
 }
 
 // Save the entire list of user roles to Firestore in one document write (Highly Cost-Efficient)
 export async function saveUserRolesToFirestore(roles: UserRoleMapping[]): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('pw_scholarship_roles_2026', JSON.stringify(roles));
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: User roles saved locally. Bypassing Firestore sync.");
+    return;
+  }
+
   const path = 'settings/role_permissions';
   try {
     const docRef = doc(db, 'settings', 'role_permissions');
@@ -355,6 +561,28 @@ export async function saveUserRoleInFirestore(roleMapping: UserRoleMapping): Pro
 
 // Delete a single user role mapping row
 export async function deleteUserRoleInFirestore(region: string, center: string, building: string, regno: string): Promise<void> {
+  // Always update local storage first
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('pw_scholarship_roles_2026');
+    if (saved) {
+      try {
+        const roles: UserRoleMapping[] = JSON.parse(saved);
+        const filtered = roles.filter(r => !(
+          r.region.toLowerCase().trim() === region.toLowerCase().trim() &&
+          r.center.toLowerCase().trim() === center.toLowerCase().trim() &&
+          r.building.toLowerCase().trim() === building.toLowerCase().trim() &&
+          r.regno.trim() === regno.trim()
+        ));
+        localStorage.setItem('pw_scholarship_roles_2026', JSON.stringify(filtered));
+      } catch (e) {}
+    }
+  }
+
+  if (typeof window !== 'undefined' && localStorage.getItem('pw_scholarship_offline_mode') === 'true') {
+    console.log("Offline Mode: User role deleted locally. Bypassing Firestore sync.");
+    return;
+  }
+
   try {
     const roles = await getUserRolesFromFirestore();
     const filtered = roles.filter(r => !(

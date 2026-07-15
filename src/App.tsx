@@ -174,13 +174,45 @@ export default function App() {
         console.error('Failed to parse saved scholarship data, using initial data.', e);
       }
     }
-    return [];
+    // Check if the user has already initialized before but cleared, or if it is completely fresh
+    const isInitialized = safeLocalStorage.getItem('pw_scholarship_data_initialized') === 'true';
+    if (isInitialized) {
+      return [];
+    }
+    // Otherwise first-time load: return the initial template data
+    return INITIAL_SCHOLARSHIP_DATA;
   });
 
   // Persist state to localStorage
   useEffect(() => {
     safeLocalStorage.setItem('pw_scholarship_data_2026', JSON.stringify(data));
+    if (data.length > 0) {
+      safeLocalStorage.setItem('pw_scholarship_data_initialized', 'true');
+    }
   }, [data]);
+
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => {
+    return safeLocalStorage.getItem('pw_scholarship_offline_mode') === 'true';
+  });
+
+  const [quotaExceeded, setQuotaExceeded] = useState<boolean>(() => {
+    return safeLocalStorage.getItem('pw_scholarship_quota_exceeded_detected') === 'true';
+  });
+
+  const toggleOfflineMode = () => {
+    const newVal = !isOfflineMode;
+    setIsOfflineMode(newVal);
+    if (newVal) {
+      safeLocalStorage.setItem('pw_scholarship_offline_mode', 'true');
+      triggerBanner('Local Storage Offline Mode Activated. Firestore cloud synchronization paused.', 'info');
+    } else {
+      safeLocalStorage.removeItem('pw_scholarship_offline_mode');
+      safeLocalStorage.removeItem('pw_scholarship_quota_exceeded_detected');
+      setQuotaExceeded(false);
+      triggerBanner('Cloud Sync Reactivated. Attempting to synchronize with Firestore...', 'success');
+      window.location.reload();
+    }
+  };
 
   // Sidebar / Details Drawer States
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
@@ -505,6 +537,13 @@ export default function App() {
         setUserRolesList(roles);
       } catch (e) {
         console.error("Failed to load cloud database.", e);
+        setIsOfflineMode(true);
+        safeLocalStorage.setItem('pw_scholarship_offline_mode', 'true');
+        const errStr = e instanceof Error ? e.message : String(e);
+        if (errStr.includes('quota') || errStr.includes('resource-exhausted') || errStr.includes('limit') || errStr.includes('exceeded')) {
+          setQuotaExceeded(true);
+          safeLocalStorage.setItem('pw_scholarship_quota_exceeded_detected', 'true');
+        }
       } finally {
         setIsLoadingCloud(false);
       }
@@ -1740,16 +1779,31 @@ export default function App() {
         setData([]);
         setSelectedRowIds([]);
         setSelectedStudentId(null);
+        safeLocalStorage.removeItem('pw_scholarship_data_2026');
         
         // Sync clear to Firestore
         import('firebase/firestore').then(async ({ getDocs, collection, writeBatch }) => {
           try {
             const snapshot = await getDocs(collection(db, 'classes'));
-            const batch = writeBatch(db);
+            let currentBatch = writeBatch(db);
+            let operationCount = 0;
+            const commitPromises: Promise<void>[] = [];
+
             snapshot.forEach(docSnap => {
-              batch.delete(docSnap.ref);
+              currentBatch.delete(docSnap.ref);
+              operationCount++;
+              if (operationCount === 400) {
+                commitPromises.push(currentBatch.commit());
+                currentBatch = writeBatch(db);
+                operationCount = 0;
+              }
             });
-            await batch.commit();
+
+            if (operationCount > 0) {
+              commitPromises.push(currentBatch.commit());
+            }
+
+            await Promise.all(commitPromises);
             triggerBanner('Permanently deleted all student records from database.', 'success');
             addLog('CLEAR_ALL', `Permanently deleted all ${totalCount} student records from master database.`);
           } catch (error) {
@@ -1759,6 +1813,72 @@ export default function App() {
         }).catch(err => {
           console.error("Failed to load firebase/firestore dynamically:", err);
           triggerBanner('Failed to clear database.', 'error');
+        });
+      }
+    );
+  };
+
+  // Master Factory Reset: Permanently wipe both cloud Firestore databases and all client-side local cache
+  const handleMasterWipe = () => {
+    triggerConfirm(
+      '🚨 MASTER FACTORY PURGE (CRITICAL)',
+      'This will permanently delete ALL Student Retention Profiles, ALL Roles & Permissions Configuration rows, and ALL Audit Logs from BOTH the live cloud Firestore database and your browser cache. This action is irreversible. Are you absolutely sure?',
+      () => {
+        setData([]);
+        setSelectedRowIds([]);
+        setSelectedStudentId(null);
+        setLogs([]);
+        setUserRolesList([]);
+
+        // Clear local storage completely
+        safeLocalStorage.removeItem('pw_scholarship_data_2026');
+        safeLocalStorage.removeItem('pw_scholarship_logs_2026');
+        safeLocalStorage.removeItem('pw_scholarship_active_email');
+        safeLocalStorage.removeItem('pw_scholarship_bypass_admin');
+
+        // Dynamic Firebase firestore operations
+        import('firebase/firestore').then(async ({ getDocs, collection, writeBatch, doc }) => {
+          try {
+            // Delete all students from 'classes' in chunked batches of 400
+            const classSnap = await getDocs(collection(db, 'classes'));
+            let classBatch = writeBatch(db);
+            let classCount = 0;
+            const classPromises: Promise<void>[] = [];
+            
+            classSnap.forEach(docSnap => {
+              classBatch.delete(docSnap.ref);
+              classCount++;
+              if (classCount === 400) {
+                classPromises.push(classBatch.commit());
+                classBatch = writeBatch(db);
+                classCount = 0;
+              }
+            });
+            if (classCount > 0) {
+              classPromises.push(classBatch.commit());
+            }
+            await Promise.all(classPromises);
+
+            // Clear role permissions (set mappings to empty array)
+            const roleDocRef = doc(db, 'settings', 'role_permissions');
+            const batch = writeBatch(db);
+            batch.set(roleDocRef, { mappings: [] });
+
+            // Delete all audit logs
+            const logSnap = await getDocs(collection(db, 'logs'));
+            logSnap.forEach(docSnap => {
+              batch.delete(docSnap.ref);
+            });
+            await batch.commit();
+
+            triggerBanner('Success! Entire Cloud Database & Browser Local Cache have been fully wiped.', 'success');
+          } catch (error) {
+            console.error("Master wipe cloud error:", error);
+            triggerBanner('Partial wipe completed. Some cloud tables failed to delete.', 'error');
+          }
+        }).catch(err => {
+          console.error("Failed to load firestore dynamically for master wipe:", err);
+          triggerBanner('Failed to execute cloud database wipe.', 'error');
         });
       }
     );
@@ -2626,10 +2746,66 @@ export default function App() {
                 <Trash2 className="w-3.5 h-3.5" />
                 <span className="hidden md:inline">Clear All Students ({data.length})</span>
               </button>
+
+              <button 
+                type="button"
+                onClick={handleMasterWipe}
+                className="bg-red-900 text-white hover:bg-red-950 border border-red-950 px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5 shadow-md"
+                title="Permanently wipe entire database records, permissions mappings, and audit logs"
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-red-200" />
+                <span className="hidden md:inline">Master Purge DB</span>
+              </button>
             </>
           )}
         </div>
       </header>
+
+      {isOfflineMode && (
+        <div className="mx-6 mt-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-xs animate-fade-in">
+          <div className="flex items-start sm:items-center gap-2.5 text-xs font-semibold">
+            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+            <div>
+              <span className="font-extrabold uppercase tracking-wider bg-amber-200 text-amber-950 px-1.5 py-0.5 rounded-md mr-2 text-[9px] inline-block">
+                Local-Only Storage Mode
+              </span>
+              {quotaExceeded ? (
+                <span>
+                  <strong>Firebase Cloud database write/read quota has been exceeded.</strong> To guarantee zero downtime or data loss, the application has automatically switched to Offline local caching. All edits, role configurations, and audit logs are being stored safely in your browser.
+                </span>
+              ) : (
+                <span>
+                  You are working in <strong>Local Storage Offline Mode</strong>. All data edits are saved locally. Click Reconnect to resume Firebase syncing.
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={toggleOfflineMode}
+              className="bg-white border border-amber-300 hover:bg-amber-100 text-amber-950 px-3 py-1.5 rounded-xl text-[11px] font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-amber-700 animate-spin" style={{ animationDuration: '4s' }} />
+              Reconnect & Sync
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                safeLocalStorage.removeItem('pw_scholarship_offline_mode');
+                safeLocalStorage.removeItem('pw_scholarship_quota_exceeded_detected');
+                setQuotaExceeded(false);
+                setIsOfflineMode(false);
+                triggerBanner('Resetting offline cache locks...', 'success');
+                setTimeout(() => window.location.reload(), 600);
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer"
+            >
+              Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Primary Navigation Tabs */}
       <div className="px-6 pt-4 flex gap-2">
