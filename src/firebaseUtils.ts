@@ -80,6 +80,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Connection test on app load
 export async function testFirestoreConnection() {
+  if (typeof window !== 'undefined' && (localStorage.getItem('pw_scholarship_offline_mode') === 'true' || localStorage.getItem('pw_scholarship_quota_exceeded_detected') === 'true')) {
+    console.log("Offline or Quota Exceeded Mode active: Bypassing Firestore connection test.");
+    return;
+  }
   const testPath = 'classes/connection_test';
   try {
     await getDocFromServer(doc(db, 'classes', 'connection_test'));
@@ -88,6 +92,7 @@ export async function testFirestoreConnection() {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Please check your Firebase configuration or network status.");
     }
+    handleFirestoreError(error, OperationType.GET, testPath);
   }
 }
 
