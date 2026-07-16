@@ -55,32 +55,32 @@ const DEFAULT_STUDENT_ROW: Omit<StudentScholarshipRow, 'id'> = {
 
 const HEADER_MAPPINGS: Record<keyof Omit<StudentScholarshipRow, 'id'>, string[]> = {
   region: ['region', 'reg', 'state', 'territory', 'zone'],
-  center: ['center', 'branch', 'center name', 'center branch'],
-  building: ['building', 'hub', 'campus', 'building name', 'classroom'],
-  studentName: ['student name', 'name', 'student name (stg)', 'student', 'stg name', 'nominee'],
-  regNo: ['reg no', 'regno', 'registration no', 'registration id', 'registration number', 'reg id'],
-  batchName: ['batch name', 'batch', 'class batch', 'batch code'],
-  class: ['class', 'grade', 'standard', 'studying class'],
-  scholarship: ['scholarship', 'scholarship tier', 'current scholarship', 'applied scholarship', 'original scholarship'],
-  mentor: ['mentor', 'mentor name', 'academic mentor'],
-  mentorMailid: ['mentor mailid', 'mentor mail id', 'mentor email', 'mentor mail'],
-  pwid: ['pwid', 'pw id', 'mentor pwid', 'employee id', 'pw user id'],
-  whatsappIntimation: ['whatsapp intimation sent', 'whatsapp sent', 'whatsapp intimation', 'whatsapp msg', 'whatsapp status'],
-  ptmStatus: ['ptm status', 'ptm done', 'ptm', 'ptm summary'],
-  parentRemarks: ['parent remarks', 'parent remarks by mentor', 'remarks', 'mentor remarks', 'feedback'],
-  paymentDate: ['admission date', 'payment date', 'admission date given by parents', 'date', 'admission payment date'],
-  discontinueReason: ['reason why discontinue', 'discontinue reason', 'reason for discontinuation', 'reason to leave'],
-  retentionProbability: ['probability of retention', 'retention probability', 'retention prob', 'probability', 'risk status'],
-  proposedScholarship: ['proposed scholarship', 'extra scholarship demand by parents', 'proposed extra scholarship', 'extra scholarship demand value'],
-  extraScholarshipDemand: ['extra scholarship demand', 'extra scholarship demand?'],
-  extraScholarshipStatus: ['extra scholarship status', 'approval status', 'status', 'extra scholarship status by central'],
-  rahStatus: ['rah status', 'final approval (rah)', 'rah approval status', 'regional head status'],
-  finalRetentionStatus: ['final retention status', 'final retention status by mentor', 'retention status', 'final retention'],
-  finalScholarship: ['final scholarship', 'approved scholarship', 'final approved scholarship'],
-  counselorName: ['counselor name', 'counselor', 'academic counselor', 'counselor name mapping'],
-  counselorPwid: ['counselor pwid', 'counselor pw id', 'counselor employee id'],
-  newRegno: ['new regno', 'new registration', 'new registration id', 'new registration no'],
-  counselorStatus: ['counselor status', 'counselor admission status', 'counselor conversion status', 're-enrolled status']
+  center: ['center', 'branch', 'center name', 'center branch', 'combined center', 'combined_center'],
+  building: ['building', 'hub', 'campus', 'building name', 'classroom', 'school', 'infrastructure'],
+  studentName: ['student name', 'name', 'student name (stg)', 'student', 'stg name', 'nominee', 'student_name'],
+  regNo: ['reg no', 'regno', 'reg_no', 'registration no', 'registration id', 'registration number', 'reg id', 'registration_number'],
+  batchName: ['batch name', 'batch', 'class batch', 'batch code', 'batch_name', 'group'],
+  class: ['class', 'grade', 'standard', 'studying class', 'std'],
+  scholarship: ['scholarship', 'scholarship tier', 'current scholarship', 'applied scholarship', 'original scholarship', 'scholarship_tier', 'discount'],
+  mentor: ['mentor', 'mentor name', 'academic mentor', 'mentor_name'],
+  mentorMailid: ['mentor mailid', 'mentor mail id', 'mentor email', 'mentor mail', 'mentor_mailid', 'mentor_mail_id'],
+  pwid: ['pwid', 'pw id', 'mentor pwid', 'employee id', 'pw user id', 'pw_id', 'pw_user_id'],
+  whatsappIntimation: ['whatsapp intimation sent', 'whatsapp sent', 'whatsapp intimation', 'whatsapp msg', 'whatsapp status', 'whatsapp_intimation_sent'],
+  ptmStatus: ['ptm status', 'ptm done', 'ptm', 'ptm summary', 'ptm done/not done', 'ptm status by mentor', 'ptm_status'],
+  parentRemarks: ['parent remarks', 'parent remarks by mentor', 'remarks', 'mentor remarks', 'feedback', 'parent remark', 'remarks by mentor', 'comments', 'parent_remarks', 'remarks_by_mentor'],
+  paymentDate: ['admission date', 'payment date', 'admission date given by parents', 'date', 'admission payment date', 'follow up date/ proposed re-enrolled date', 'follow up date', 'admission_date', 'payment_date'],
+  discontinueReason: ['reason why discontinue', 'discontinue reason', 'reason for discontinuation', 'reason to leave', 'reason dropout', 'dropout reason', 'reason of discontinuation', 'discontinue_reason'],
+  retentionProbability: ['probability of retention', 'retention probability', 'retention prob', 'probability', 'risk status', 'retention level', 'retention risk', 'retention_probability', 'probability_of_retention'],
+  proposedScholarship: ['proposed scholarship', 'extra scholarship demand by parents', 'proposed extra scholarship', 'extra scholarship demand value', 'proposed_scholarship'],
+  extraScholarshipDemand: ['extra scholarship demand', 'extra scholarship demand?', 'extra_scholarship_demand'],
+  extraScholarshipStatus: ['extra scholarship status', 'approval status', 'status', 'extra scholarship status by central', 'extra_scholarship_status'],
+  rahStatus: ['rah status', 'final approval (rah)', 'rah approval status', 'regional head status', 'rah_status'],
+  finalRetentionStatus: ['final retention status', 'final retention status by mentor', 'retention status', 'final retention', 'reenrolled by mentor', 're-enrolled by mentor', 'final_retention_status'],
+  finalScholarship: ['final scholarship', 'approved scholarship', 'final approved scholarship', 'final_scholarship'],
+  counselorName: ['counselor name', 'counselor', 'academic counselor', 'counselor name mapping', 'counselor_name'],
+  counselorPwid: ['counselor pwid', 'counselor pw id', 'counselor employee id', 'counselor mail id', 'counselor mailid', 'counselor email', 'counselor_pwid'],
+  newRegno: ['new regno', 'new registration', 'new registration id', 'new registration no', 'new_regno'],
+  counselorStatus: ['counselor status', 'counselor admission status', 'counselor conversion status', 're-enrolled status', 'counselor_status']
 };
 
 export default function ImportModal({ isOpen, onClose, onImport, userRole }: ImportModalProps) {
@@ -324,6 +324,51 @@ export default function ImportModal({ isOpen, onClose, onImport, userRole }: Imp
     });
   };
 
+  const splitCSVIntoLines = (textStr: string): string[] => {
+    const linesList: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+    for (let i = 0; i < textStr.length; i++) {
+      const char = textStr[i];
+      const nextChar = textStr[i + 1];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+        currentLine += char;
+      } else if (char === '\r') {
+        if (nextChar === '\n') {
+          if (inQuotes) {
+            currentLine += '\r\n';
+            i++;
+          } else {
+            linesList.push(currentLine);
+            currentLine = '';
+            i++;
+          }
+        } else {
+          if (inQuotes) {
+            currentLine += '\r';
+          } else {
+            linesList.push(currentLine);
+            currentLine = '';
+          }
+        }
+      } else if (char === '\n') {
+        if (inQuotes) {
+          currentLine += '\n';
+        } else {
+          linesList.push(currentLine);
+          currentLine = '';
+        }
+      } else {
+        currentLine += char;
+      }
+    }
+    if (currentLine) {
+      linesList.push(currentLine);
+    }
+    return linesList;
+  };
+
   const processContent = (text: string, isJSON = false) => {
     if (!text || !text.trim()) {
       setParsedData([]);
@@ -355,18 +400,22 @@ export default function ImportModal({ isOpen, onClose, onImport, userRole }: Imp
       }
 
       // CSV/TSV Parsing
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+      const lines = splitCSVIntoLines(text).map(l => l.trim()).filter(l => l !== '');
       if (lines.length === 0) return;
 
       const firstLine = lines[0];
-      const isTab = firstLine.includes('\t');
-      const delim = isTab ? '\t' : ',';
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const tabCount = (firstLine.match(/\t/g) || []).length;
+      const delim = tabCount > commaCount ? '\t' : ',';
 
       // Parse headers
       const headers = parseCSVLine(lines[0], delim).map(h => h.trim().toLowerCase());
       const discoveredColumns: string[] = [];
 
       const rows: Partial<StudentScholarshipRow>[] = [];
+
+      // Helper function to normalize text for extremely robust mapping
+      const normalizeText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
       for (let i = 1; i < lines.length; i++) {
         const cells = parseCSVLine(lines[i], delim);
@@ -381,9 +430,12 @@ export default function ImportModal({ isOpen, onClose, onImport, userRole }: Imp
 
         const mapped: Partial<StudentScholarshipRow> = { ...DEFAULT_STUDENT_ROW };
 
-        // Match headers to keys
+        // Match headers to keys with normalize protection
         Object.entries(HEADER_MAPPINGS).forEach(([fieldKey, aliases]) => {
-          const matchHeader = Object.keys(rawRowObj).find(h => aliases.includes(h.trim().toLowerCase()));
+          const matchHeader = Object.keys(rawRowObj).find(h => {
+            const normH = normalizeText(h);
+            return aliases.some(alias => normalizeText(alias) === normH);
+          });
           if (matchHeader) {
             const rawVal = rawRowObj[matchHeader].trim();
             if (!discoveredColumns.includes(fieldKey)) {
@@ -755,7 +807,11 @@ export default function ImportModal({ isOpen, onClose, onImport, userRole }: Imp
                         <th className="p-2.5">Scholarship</th>
                         <th className="p-2.5">Mentor</th>
                         {userRole !== 'FH' && userRole !== 'Mentor' && <th className="p-2.5">Extra status</th>}
+                        <th className="p-2.5">PTM</th>
+                        <th className="p-2.5">Parent Remarks</th>
+                        <th className="p-2.5">Prob.</th>
                         <th className="p-2.5">Retention Status</th>
+                        <th className="p-2.5">Discontinue Reason</th>
                         <th className="p-2.5">Counselor Name</th>
                         <th className="p-2.5">New Regno</th>
                       </tr>
@@ -789,7 +845,21 @@ export default function ImportModal({ isOpen, onClose, onImport, userRole }: Imp
                               ) : '-'}
                             </td>
                           )}
+                          <td className="p-2.5">{row.ptmStatus || '-'}</td>
+                          <td className="p-2.5 truncate max-w-[150px]" title={row.parentRemarks || undefined}>{row.parentRemarks || '-'}</td>
+                          <td className="p-2.5">
+                            {row.retentionProbability ? (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                row.retentionProbability === 'High' ? 'bg-green-50 text-green-700 border border-green-200' :
+                                row.retentionProbability === 'Medium' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
+                                {row.retentionProbability}
+                              </span>
+                            ) : '-'}
+                          </td>
                           <td className="p-2.5 font-normal text-stone-500 truncate max-w-[120px]">{row.finalRetentionStatus || '-'}</td>
+                          <td className="p-2.5 truncate max-w-[120px]" title={row.discontinueReason || undefined}>{row.discontinueReason || '-'}</td>
                           <td className="p-2.5 truncate max-w-[100px]">{row.counselorName || '-'}</td>
                           <td className="p-2.5 font-mono">{row.newRegno || '-'}</td>
                         </tr>

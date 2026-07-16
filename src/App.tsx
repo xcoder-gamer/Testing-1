@@ -972,6 +972,38 @@ export default function App() {
     counselorStatus: true,
   });
 
+  // Automatically show columns in the UI that contain actual data values in the loaded dataset
+  useEffect(() => {
+    if (data.length === 0) return;
+    const colsToReveal: Partial<Record<keyof StudentScholarshipRow, boolean>> = {};
+    data.forEach(row => {
+      Object.keys(row).forEach(key => {
+        const k = key as keyof StudentScholarshipRow;
+        if (k !== 'id' && k !== 'regNo' && k !== 'studentName') {
+          const val = row[k];
+          if (val !== undefined && val !== '' && val !== false && val !== null) {
+            colsToReveal[k] = true;
+          }
+        }
+      });
+    });
+
+    if (Object.keys(colsToReveal).length > 0) {
+      setVisibleColumns(prev => {
+        const next = { ...prev };
+        let hasChanges = false;
+        Object.keys(colsToReveal).forEach(k => {
+          const key = k as keyof StudentScholarshipRow;
+          if (!next[key]) {
+            next[key] = true;
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? next : prev;
+      });
+    }
+  }, [data]);
+
   // Toggles for visual configuration
   const [showFilters, setShowFilters] = useState(false);
   const [showColumnConfig, setShowColumnConfig] = useState(false);
@@ -2401,6 +2433,27 @@ export default function App() {
   };
 
   const handleImportData = (importedRows: StudentScholarshipRow[], strategy: 'merge' | 'overwrite') => {
+    // Automatically reveal columns in the UI that contain actual imported values
+    const colsToReveal: Partial<Record<keyof StudentScholarshipRow, boolean>> = {};
+    importedRows.forEach(row => {
+      Object.keys(row).forEach(key => {
+        const k = key as keyof StudentScholarshipRow;
+        if (k !== 'id' && k !== 'regNo' && k !== 'studentName') {
+          const val = row[k];
+          if (val !== undefined && val !== '' && val !== false && val !== null) {
+            colsToReveal[k] = true;
+          }
+        }
+      });
+    });
+
+    if (Object.keys(colsToReveal).length > 0) {
+      setVisibleColumns(prev => ({
+        ...prev,
+        ...colsToReveal
+      }));
+    }
+
     if (strategy === 'overwrite') {
       setData(importedRows);
       addLog('IMPORT', `Spreadsheet Overwrite: Wiped and replaced entire master database with ${importedRows.length} imported records.`, `${importedRows.length} rows`);
