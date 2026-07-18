@@ -32,7 +32,10 @@ export default function AuditLogsModal({ isOpen, onClose, logs, onClearLogs }: A
     return logs.filter(log => {
       const matchSearch = 
         log.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (log.target && log.target.toLowerCase().includes(searchTerm.toLowerCase()));
+        (log.target && log.target.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (log.userEmail && log.userEmail.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (log.regNo && log.regNo.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (log.center && log.center.toLowerCase().includes(searchTerm.toLowerCase()));
       
       const matchAction = selectedAction === 'ALL' || log.action === selectedAction;
       const matchRole = selectedRole === 'ALL' || log.userRole === selectedRole;
@@ -46,12 +49,15 @@ export default function AuditLogsModal({ isOpen, onClose, logs, onClearLogs }: A
   // Export logs helper (CSV/JSON style)
   const handleExportLogs = () => {
     if (filteredLogs.length === 0) return;
-    const header = ['ID', 'Timestamp', 'User Role', 'Action', 'Target Student/ID', 'Activity Details'];
+    const header = ['ID', 'Timestamp', 'User Email', 'User Role', 'Action', 'Student RegNo', 'Center', 'Target Student/ID', 'Activity Details'];
     const rows = filteredLogs.map(log => [
       log.id,
       log.timestamp,
+      log.userEmail || '',
       log.userRole,
       log.action,
+      log.regNo || '',
+      log.center || '',
       log.target || '',
       log.details.replace(/"/g, '""')
     ]);
@@ -97,8 +103,11 @@ export default function AuditLogsModal({ isOpen, onClose, logs, onClearLogs }: A
                 System Audit Trail & History Logs
               </h3>
               <p className="text-xs text-stone-500 font-medium">
-                Tracks every database attempt (writes, edits, deletes, resets, imports) with timestamp details and simulated role profiles.
+                Tracks every database attempt (writes, edits, deletes, resets, imports) with timestamp details, simulated role profiles, and operator emails.
               </p>
+              <div className="mt-1 text-[10.5px] text-[#8C764D] bg-[#FBF5EC] px-2 py-1 rounded-md border border-[#ECE0CE] inline-block font-semibold">
+                💡 Note: Actions taken prior to the update default to "System" (Legacy). All ongoing & new actions display the active Google Workspace email.
+              </div>
             </div>
           </div>
           <button 
@@ -221,10 +230,11 @@ export default function AuditLogsModal({ isOpen, onClose, logs, onClearLogs }: A
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-[#FAF8F5] border-b border-[#E3DEC3] text-[10px] font-bold uppercase tracking-wider text-stone-500 sticky top-0">
-                    <th className="p-3 w-40">Timestamp</th>
-                    <th className="p-3 w-32">Action</th>
-                    <th className="p-3 w-32">Simulated Role</th>
-                    <th className="p-3 w-44">Target student / ID</th>
+                    <th className="p-3 w-36">Timestamp</th>
+                    <th className="p-3 w-48">Operator / Email</th>
+                    <th className="p-3 w-24">Action</th>
+                    <th className="p-3 w-48">Context / Scope</th>
+                    <th className="p-3 w-36">Target student / ID</th>
                     <th className="p-3">Details</th>
                   </tr>
                 </thead>
@@ -240,6 +250,7 @@ export default function AuditLogsModal({ isOpen, onClose, logs, onClearLogs }: A
                         actionBadge = 'bg-sky-50 text-sky-700 border-sky-200';
                         break;
                       case 'DELETE':
+                      case 'BULK_DELETE':
                         actionBadge = 'bg-rose-50 text-rose-700 border-rose-200';
                         break;
                       case 'IMPORT':
@@ -248,22 +259,41 @@ export default function AuditLogsModal({ isOpen, onClose, logs, onClearLogs }: A
                       case 'RESET':
                         actionBadge = 'bg-amber-50 text-amber-700 border-amber-200';
                         break;
+                      case 'CLEAR_ALL':
+                      case 'DELETE_FILTERED':
+                        actionBadge = 'bg-red-50 text-red-700 border-red-200';
+                        break;
+                      default:
+                        actionBadge = 'bg-stone-50 text-stone-600 border-stone-200';
                     }
 
                     return (
                       <tr key={log.id} className="hover:bg-stone-50/50">
-                        <td className="p-3 font-mono text-[10.5px] text-stone-400 whitespace-nowrap">
+                        <td className="p-3 font-mono text-[10px] text-stone-400 whitespace-nowrap">
                           {log.timestamp}
                         </td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded-md border text-[10px] font-bold ${actionBadge}`}>
+                          <div className="font-semibold text-stone-900 truncate max-w-[170px]" title={log.userEmail}>
+                            {log.userEmail || 'System'}
+                          </div>
+                          <div className="text-[10px] text-stone-400 font-mono">
+                            {log.userRole}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-1.5 py-0.5 rounded-md border text-[9.5px] font-bold ${actionBadge}`}>
                             {log.action}
                           </span>
                         </td>
-                        <td className="p-3 font-mono text-[11px] font-semibold text-stone-600">
-                          {log.userRole}
+                        <td className="p-3 font-mono text-[11px]">
+                          <div className="font-semibold text-stone-700">
+                            {log.regNo || <span className="text-stone-300 font-sans">-</span>}
+                          </div>
+                          <div className="text-[10px] text-stone-400 font-sans truncate max-w-[170px]" title={log.center}>
+                            {log.center || <span className="text-stone-300">-</span>}
+                          </div>
                         </td>
-                        <td className="p-3 truncate font-mono text-[11px] max-w-[150px]" title={log.target}>
+                        <td className="p-3 truncate font-mono text-[11px] max-w-[120px]" title={log.target}>
                           {log.target || <span className="text-stone-300 font-sans">-</span>}
                         </td>
                         <td className="p-3 leading-relaxed font-semibold text-stone-800 break-words">

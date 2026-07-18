@@ -48,9 +48,12 @@ export interface ActivityLog {
   id: string;
   timestamp: string;
   userRole: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'IMPORT' | 'RESET';
+  action: string;
   details: string;
   target?: string;
+  userEmail?: string;
+  regNo?: string;
+  center?: string;
 }
 
 export interface UserRoleMapping {

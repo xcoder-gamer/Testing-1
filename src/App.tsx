@@ -510,19 +510,22 @@ export default function App() {
   // Cloud loading state
   const [isLoadingCloud, setIsLoadingCloud] = useState(true);
 
-  const addLog = useCallback((action: ActivityLog['action'], details: string, target?: string) => {
+  const addLog = useCallback((action: ActivityLog['action'], details: string, target?: string, regNo?: string, center?: string) => {
     const newLog: ActivityLog = {
       id: `log_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
       timestamp: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
       userRole,
       action,
       details,
-      target
+      target,
+      userEmail: activeEmail || 'unknown',
+      regNo,
+      center
     };
     setLogs(prev => [newLog, ...prev]);
     // Sync to Firestore Cloud
     addLogToFirestore(newLog).catch(err => console.error("Cloud logging error:", err));
-  }, [userRole]);
+  }, [userRole, activeEmail]);
 
   // Connection and data fetch on boot
   useEffect(() => {
@@ -1711,7 +1714,9 @@ export default function App() {
     addLog(
       'UPDATE',
       `Updated field "${String(key)}" from "${oldValue === true ? 'Yes' : oldValue === false ? 'No' : oldValue || 'Empty'}" to "${value === true ? 'Yes' : value === false ? 'No' : value || 'Empty'}".`,
-      `${student.studentName} (${student.regNo})`
+      `${student.studentName} (${student.regNo})`,
+      student.regNo,
+      student.center
     );
 
     setData(prev => prev.map(row => {
@@ -2015,7 +2020,7 @@ export default function App() {
         if (student) {
           deleteStudentInFirestore(student).catch(err => console.error("Cloud delete student error:", err));
         }
-        addLog('DELETE', `Deleted student profile: ${name} (Reg No: ${regNo || 'N/A'})`, `${name} (${regNo || 'N/A'})`);
+        addLog('DELETE', `Deleted student profile: ${name} (Reg No: ${regNo || 'N/A'})`, `${name} (${regNo || 'N/A'})`, regNo, student ? student.center : '');
         triggerBanner(`Deleted ${name} is removed from tracker.`, 'error');
       }
     );
@@ -2184,7 +2189,7 @@ export default function App() {
     setData(prev => [rowToAdd, ...prev]);
     saveStudentInFirestore(rowToAdd).catch(err => console.error("Cloud save student error:", err));
     setIsAddOpen(false);
-    addLog('CREATE', `Created student profile: ${rowToAdd.studentName} (Reg No: ${rowToAdd.regNo}) for Center "${rowToAdd.center}" and Class ${rowToAdd.class}.`, `${rowToAdd.studentName} (${rowToAdd.regNo})`);
+    addLog('CREATE', `Created student profile: ${rowToAdd.studentName} (Reg No: ${rowToAdd.regNo}) for Center "${rowToAdd.center}" and Class ${rowToAdd.class}.`, `${rowToAdd.studentName} (${rowToAdd.regNo})`, rowToAdd.regNo, rowToAdd.center);
     triggerBanner(`Added ${rowToAdd.studentName} to the tracker successfully`, 'success');
     // Reset state
     setNewStudent({
@@ -2661,7 +2666,7 @@ export default function App() {
 
         {/* Global actions */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {isAdmin && (
+          {(isAdmin || userRole === 'Central') && (
             <>
               <button 
                 type="button"
@@ -2776,7 +2781,7 @@ export default function App() {
             </button>
           </div>
 
-          {isAdmin && (
+          {(isAdmin || userRole === 'Central') && (
             <>
               <button 
                 type="button"
@@ -4642,7 +4647,7 @@ export default function App() {
                               <Maximize2 className="w-3 h-3 text-[#4A5D4F]" />
                               <span>Edit Drawer</span>
                             </button>
-                            {isAdmin && (
+                            {(isAdmin || userRole === 'Central') && (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteRow(row.id, row.studentName)}
