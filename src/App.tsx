@@ -1063,7 +1063,7 @@ export default function App() {
   };
 
   // Top level view state
-  const [activeView, setActiveView] = useState<'database' | 'summary'>('database');
+  const [activeView, setActiveView] = useState<'database' | 'summary' | 'logs'>('database');
 
   // Dynamic filter states for the Summary page
   const [summaryRegion, setSummaryRegion] = useState<string>('All');
@@ -2899,6 +2899,21 @@ export default function App() {
           <BarChart3 className="w-4 h-4" />
           Summary Dashboard & Cuts
         </button>
+        {(isAdmin || userRole === 'Central') && (
+          <button
+            type="button"
+            id="logs-tab-btn"
+            onClick={() => setActiveView('logs')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-xs border ${
+              activeView === 'logs'
+                ? 'bg-[#5A7060] text-white border-[#5A7060]'
+                : 'bg-[#FDFBF9] text-stone-600 border-[#E3DEC3] hover:bg-[#F2EDDF]'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            History Logs
+          </button>
+        )}
       </div>
 
       {activeView === 'database' && (
@@ -5764,6 +5779,19 @@ export default function App() {
               </div>
             </div>
           </div>
+        </section>
+      )}
+
+      {activeView === 'logs' && (isAdmin || userRole === 'Central') && (
+        <section className="px-6 py-5 flex-1 overflow-y-auto">
+          <AuditLogsModal 
+            inline
+            logs={logs}
+            onClearLogs={() => {
+              setLogs([]);
+              clearLogsInFirestore().catch(err => console.error("Wiping cloud logs failed:", err));
+            }}
+          />
         </section>
       )}
 
