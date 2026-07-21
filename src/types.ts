@@ -24,6 +24,8 @@ export interface StudentScholarshipRow {
   mentor: string;
   mentorMailid: string; // Storing matching value
   pwid: string; // Storing matching value
+  chMailid?: string; // CH email
+  rahMailid?: string; // RAH email
   whatsappIntimation: boolean; // Is intimated
   ptmStatus: string;
   parentRemarks: string;

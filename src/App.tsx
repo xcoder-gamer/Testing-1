@@ -62,7 +62,8 @@ import {
   deleteStudentInFirestore,
   resetAllStudentsInFirestore,
   clearLogsInFirestore,
-  getUserRolesFromFirestore
+  getUserRolesFromFirestore,
+  saveUserRolesToFirestore
 } from './firebaseUtils';
 import { db, auth } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -794,7 +795,7 @@ export default function App() {
     }
 
     // 4. Extra Scholarship related fields:
-    if (field === 'proposedScholarship' || field === 'extraScholarshipDemand') {
+    if (field === 'proposedScholarship' || field === 'extraScholarshipDemand' || field === 'chMailid' || field === 'rahMailid') {
       return ['Central', 'CH', 'RAH'].includes(userRole);
     }
 
@@ -820,6 +821,18 @@ export default function App() {
     if (userRole === 'Central') return true;
     return false;
   }, [userRole, isMoveToRAH]);
+
+  // Automatically retrieve CH Mail ID fallback based on UserRoleMapping (RLS)
+  const getFallbackCHMailid = useCallback((studentRow: StudentScholarshipRow) => {
+    const mapping = userRolesList.find(m => m.regno === studentRow.regNo);
+    return mapping ? (mapping.chMailid || '').trim() : '';
+  }, [userRolesList]);
+
+  // Automatically retrieve RAH Mail ID fallback based on UserRoleMapping (RLS)
+  const getFallbackRAHMailid = useCallback((studentRow: StudentScholarshipRow) => {
+    const mapping = userRolesList.find(m => m.regno === studentRow.regNo);
+    return mapping ? (mapping.rahMailid || '').trim() : '';
+  }, [userRolesList]);
 
   // Automatically retrieve Counselor Mail ID and Counselor Name fallback based on UserRoleMapping (RLS)
   const getFallbackCounselorDetails = useCallback((studentRow: StudentScholarshipRow) => {
@@ -1791,6 +1804,40 @@ export default function App() {
       }
       return row;
     }));
+
+    if (key === 'chMailid' || key === 'rahMailid') {
+      const emailVal = String(value || '').trim().toLowerCase();
+      setUserRolesList(prev => {
+        const exists = prev.some(m => m.regno === student.regNo);
+        let updatedRoles: UserRoleMapping[];
+        if (exists) {
+          updatedRoles = prev.map(m => {
+            if (m.regno === student.regNo) {
+              return { ...m, [key]: emailVal };
+            }
+            return m;
+          });
+        } else {
+          updatedRoles = [
+            ...prev,
+            {
+              region: student.region || 'PB + J&K',
+              center: student.center || 'Anantnag Vidyapeeth',
+              building: student.building || student.center || 'Anantnag Vidyapeeth',
+              regno: student.regNo,
+              rahMailid: key === 'rahMailid' ? emailVal : '',
+              rfhMailid: '',
+              chMailid: key === 'chMailid' ? emailVal : '',
+              fhMailid: '',
+              mentorId: student.mentorMailid || '',
+              counselorId: student.counselorPwid || ''
+            }
+          ];
+        }
+        saveUserRolesToFirestore(updatedRoles).catch(err => console.error("Error saving updated role mappings:", err));
+        return updatedRoles;
+      });
+    }
   };
 
   // Reset to original data
@@ -2088,19 +2135,25 @@ export default function App() {
       if (currentStudent) {
         const fallbackCounselor = getFallbackCounselorDetails(currentStudent);
         const fallbackMentor = getFallbackMentorDetails(currentStudent);
+        const fallbackCHMailid = getFallbackCHMailid(currentStudent);
+        const fallbackRAHMailid = getFallbackRAHMailid(currentStudent);
         
         const needsCounselorNameUpdate = !currentStudent.counselorName && fallbackCounselor.name;
         const needsCounselorPwidUpdate = !currentStudent.counselorPwid && fallbackCounselor.mailId;
         const needsMentorNameUpdate = !currentStudent.mentor && fallbackMentor.name;
         const needsMentorMailidUpdate = !currentStudent.mentorMailid && fallbackMentor.mailId;
+        const needsCHMailidUpdate = !currentStudent.chMailid && fallbackCHMailid;
+        const needsRAHMailidUpdate = !currentStudent.rahMailid && fallbackRAHMailid;
 
-        if (needsCounselorNameUpdate || needsCounselorPwidUpdate || needsMentorNameUpdate || needsMentorMailidUpdate) {
+        if (needsCounselorNameUpdate || needsCounselorPwidUpdate || needsMentorNameUpdate || needsMentorMailidUpdate || needsCHMailidUpdate || needsRAHMailidUpdate) {
           const updatedStudent = {
             ...currentStudent,
             counselorName: currentStudent.counselorName || fallbackCounselor.name,
             counselorPwid: currentStudent.counselorPwid || fallbackCounselor.mailId,
             mentor: currentStudent.mentor || fallbackMentor.name,
-            mentorMailid: currentStudent.mentorMailid || fallbackMentor.mailId
+            mentorMailid: currentStudent.mentorMailid || fallbackMentor.mailId,
+            chMailid: currentStudent.chMailid || fallbackCHMailid,
+            rahMailid: currentStudent.rahMailid || fallbackRAHMailid,
           };
 
           // Update local state
@@ -2110,7 +2163,7 @@ export default function App() {
         }
       }
     }
-  }, [selectedStudentId, getFallbackCounselorDetails, getFallbackMentorDetails]);
+  }, [selectedStudentId, getFallbackCounselorDetails, getFallbackMentorDetails, getFallbackCHMailid, getFallbackRAHMailid]);
 
   // Dialog Add Form state
   const [newStudent, setNewStudent] = useState<Partial<StudentScholarshipRow>>({
@@ -5444,6 +5497,22 @@ export default function App() {
                               </>
                             );
                           })()}
+                          {(() => {
+                            const fallbackCH = getFallbackCHMailid(selectedPerspectiveStudent);
+                            const chVal = selectedPerspectiveStudent.chMailid || fallbackCH;
+                            if (!chVal) return null;
+                            return (
+                              <div><span className="text-stone-400">CH Mail ID:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{chVal}</span></div>
+                            );
+                          })()}
+                          {(() => {
+                            const fallbackRAH = getFallbackRAHMailid(selectedPerspectiveStudent);
+                            const rahVal = selectedPerspectiveStudent.rahMailid || fallbackRAH;
+                            if (!rahVal) return null;
+                            return (
+                              <div><span className="text-stone-400">RAH Mail ID:</span> <span className="text-stone-700 select-all font-mono text-[10px]">{rahVal}</span></div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -6246,6 +6315,30 @@ export default function App() {
                             </p>
                           </div>
                         )}
+
+                        {/* CH Mail ID and RAH Mail ID edit access */}
+                        <div className="col-span-1">
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">CH Mail ID</label>
+                          <input
+                            type="email"
+                            disabled={!canEditField('chMailid', activeStudent)}
+                            value={activeStudent.chMailid || ''}
+                            onChange={(e) => handleCellChange(activeStudent.id, 'chMailid', e.target.value)}
+                            placeholder="e.g. ch@pw.live"
+                            className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-[#FAF8F5] disabled:text-stone-400 text-stone-800 font-mono"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-[10px] font-bold text-stone-500 uppercase">RAH Mail ID</label>
+                          <input
+                            type="email"
+                            disabled={!canEditField('rahMailid', activeStudent)}
+                            value={activeStudent.rahMailid || ''}
+                            onChange={(e) => handleCellChange(activeStudent.id, 'rahMailid', e.target.value)}
+                            placeholder="e.g. rah@pw.live"
+                            className="mt-0.5 w-full text-[11px] font-semibold bg-[#FAF8F5] border border-[#E3DEC3] rounded-lg p-2 focus:bg-white focus:ring-1 focus:ring-[#5A7060] outline-hidden disabled:bg-[#FAF8F5] disabled:text-stone-400 text-stone-800 font-mono"
+                          />
+                        </div>
 
                         {/* Extra Scholarship Status Dropdown */}
                         <div className="col-span-2">

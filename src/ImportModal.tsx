@@ -65,6 +65,8 @@ const HEADER_MAPPINGS: Record<keyof Omit<StudentScholarshipRow, 'id'>, string[]>
   mentor: ['mentor', 'mentor name', 'academic mentor', 'mentor_name'],
   mentorMailid: ['mentor mailid', 'mentor mail id', 'mentor email', 'mentor mail', 'mentor_mailid', 'mentor_mail_id'],
   pwid: ['pwid', 'pw id', 'mentor pwid', 'employee id', 'pw user id', 'pw_id', 'pw_user_id'],
+  chMailid: ['ch mailid', 'ch mail id', 'ch email', 'ch_mailid', 'ch_mail_id'],
+  rahMailid: ['rah mailid', 'rah mail id', 'rah email', 'rah_mailid', 'rah_mail_id'],
   whatsappIntimation: ['whatsapp intimation sent', 'whatsapp sent', 'whatsapp intimation', 'whatsapp msg', 'whatsapp status', 'whatsapp_intimation_sent'],
   ptmStatus: ['ptm status', 'ptm done', 'ptm', 'ptm summary', 'ptm done/not done', 'ptm status by mentor', 'ptm_status'],
   parentRemarks: ['parent remarks', 'parent remarks by mentor', 'remarks', 'mentor remarks', 'feedback', 'parent remark', 'remarks by mentor', 'comments', 'parent_remarks', 'remarks_by_mentor'],
